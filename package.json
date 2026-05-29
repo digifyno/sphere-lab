@@ -1,0 +1,10 @@
+{
+  "name": "spherelab",
+  "version": "1.0.0",
+  "description": "Sphere Lab — HTML5 canvas 2D physics sandbox: warm-started impulse solver, Coulomb friction, N-body gravity, and a particle fluid.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node tests/sim.test.mjs && node tests/scenes.test.mjs && node tests/boot.test.mjs",
+    "serve": "./serve.sh"
+  }
+}

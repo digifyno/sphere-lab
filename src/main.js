@@ -31,12 +31,12 @@ import './input/keyboard.js';
 
 /** Push persisted prefs into PHYS + DOM on boot. */
 function applySavedPrefs() {
-  const toggleIds = ['t-bloom','t-shadow','t-blur','t-trail','t-vec','t-sound','t-refract','t-heat','t-ao','t-aberration','t-grain','t-streaks','t-flare','t-fire'];
+  const toggleIds = ['t-bloom','t-shadow','t-blur','t-trail','t-vec','t-sound','t-refract','t-heat','t-ao','t-aberration','t-grain','t-streaks','t-flare','t-fire','t-warm'];
   const ids2keys = {
     't-bloom':'bloom','t-shadow':'shadow','t-blur':'motionBlur','t-trail':'trails',
     't-vec':'showVec','t-sound':'sound','t-refract':'refract','t-heat':'heatFx',
     't-ao':'ao','t-aberration':'aberration','t-grain':'grain','t-streaks':'streaks','t-flare':'flare',
-    't-fire':'fire'
+    't-fire':'fire','t-warm':'warmStart'
   };
   for (const id of toggleIds) {
     const key = ids2keys[id];
@@ -50,6 +50,12 @@ function applySavedPrefs() {
   const sVol = /** @type {HTMLInputElement} */ (document.getElementById('s-vol'));
   const vVol = document.getElementById('v-vol');
   if (sVol) { sVol.value = String(Math.round(vol * 100)); vVol.textContent = String(Math.round(vol * 100)); }
+
+  const solver = getPref('solver', PHYS.solverVel);
+  PHYS.solverVel = solver;
+  const sSolver = /** @type {HTMLInputElement} */ (document.getElementById('s-solver'));
+  const vSolver = document.getElementById('v-solver');
+  if (sSolver) { sSolver.value = String(solver); vSolver.textContent = String(Math.round(solver)); }
 
   const matId = getPref('mat', 'rubber');
   if (MATERIALS[matId] && MAT_KEYS.includes(matId)) { selectedMat.id = matId; }

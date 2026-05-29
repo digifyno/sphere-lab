@@ -66,7 +66,8 @@ export function bindButtons() {
     ['t-grain',      'grain'],
     ['t-streaks',    'streaks'],
     ['t-flare',      'flare'],
-    ['t-fire',       'fire']
+    ['t-fire',       'fire'],
+    ['t-warm',       'warmStart']
   ];
   for (const [id, k] of toggles) {
     const b = document.getElementById(id);

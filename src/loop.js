@@ -282,8 +282,11 @@ function updateHudText(cps) {
   document.getElementById('stat-links').textContent = String(W.springs.length + W.constraints.length);
   document.getElementById('stat-zoom').textContent  = cam.zoom.toFixed(2);
   document.getElementById('stat-pairs').textContent = String(stats.pairs);
-  let ke = 0; for (const b of balls) ke += b.kineticEnergy();
+  let ke = 0, heat = 0;
+  for (const b of balls) { ke += b.kineticEnergy(); heat += b.heat; }
   document.getElementById('stat-e').textContent = String(Math.round(ke));
+  document.getElementById('stat-temp').textContent =
+    balls.length ? Math.round(heat / balls.length * 100) + '%' : '0%';
 }
 
 export function startLoop() {

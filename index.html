@@ -140,6 +140,7 @@
       <div class="slider-row"><span class="slider-label">Magnus</span>   <input type="range" id="s-m" min="0"    max="200"  value="60"  step="1"><span class="slider-value" id="v-m">0.60</span></div>
       <div class="slider-row"><span class="slider-label">Size</span>     <input type="range" id="s-r" min="6"    max="60"   value="20"  step="1"><span class="slider-value" id="v-r">20</span></div>
       <div class="slider-row"><span class="slider-label">Wind</span>     <input type="range" id="s-w" min="-400" max="400"  value="0"   step="10"><span class="slider-value" id="v-w">0</span></div>
+      <div class="slider-row"><span class="slider-label" data-tip="Contact-solver iterations — higher = firmer stacks, lower = softer/cheaper">Solver</span><input type="range" id="s-solver" min="2" max="16" value="8" step="1"><span class="slider-value" id="v-solver">8</span></div>
     </div>
 
     <div class="section">
@@ -175,6 +176,7 @@
         <button class="toggle active" id="t-streaks"    data-tip="Motion streaks">Streaks</button>
         <button class="toggle active" id="t-flare"      data-tip="Lens flares on bright balls">Flare</button>
         <button class="toggle active" id="t-fire"       data-tip="Fire effects — explosion sparks, fuse flames, hot-ball trails">Fire</button>
+        <button class="toggle active" id="t-warm"       data-tip="Warm-start the contact solver — reuse last frame's impulses for rock-solid stacks. Turn off to feel the difference.">Warm</button>
       </div>
     </div>
 
@@ -187,6 +189,7 @@
       <div class="stat-row"><span>Links</span><span class="v" id="stat-links">0</span></div>
       <div class="stat-row"><span>Zoom</span><span class="v" id="stat-zoom">1.00</span></div>
       <div class="stat-row"><span>Pairs tested</span><span class="v" id="stat-pairs">0</span></div>
+      <div class="stat-row"><span>Avg temp</span><span class="v" id="stat-temp">0%</span></div>
 
       <div class="graph-card">
         <div class="graph-head"><span>Frames / sec</span><span class="v" id="stat-fps">0</span></div>
@@ -284,13 +287,21 @@
     <h4>Physics model</h4>
     <div class="help-prose">
       240&nbsp;Hz fixed-timestep simulation with continuous collision detection.
-      Impulse-based contacts with separate normal + tangential passes; tangential
-      friction transfers linear momentum into spin. Spring + pendulum constraints
-      resolve iteratively. Materials carry density, restitution, friction, metallic,
-      glow, refraction, pitch, and timbre — heat modifies elasticity and friction
-      per material. Buoyancy follows Archimedes, Magnus curves spinning trajectories,
-      conveyor belts drag tangentially, and a uniform spatial hash keeps broadphase
-      <code>O(n)</code> on average.
+      Ball contacts use a <b>warm-started sequential-impulse solver</b>: each
+      contact reuses last frame's accumulated impulse, friction is clamped to a
+      proper <b>Coulomb cone</b> against the accumulated normal impulse, and
+      penetration is removed by an energy-free <b>split-impulse (NGS)</b> position
+      pass — so stacks and granular piles stay rock-solid instead of jittering.
+      Settled contacts sleep as islands. Tangential friction transfers linear
+      momentum into spin; spring + pendulum constraints resolve iteratively.
+      <b>Newtonian N-body gravity</b> (Orbits) and a <b>particle fluid</b> with
+      surface-tension cohesion + viscosity (Fluid / water) build on the same
+      core. Materials carry density, restitution, friction, conductivity and
+      more — heat conducts on contact and modifies elasticity. Buoyancy follows
+      Archimedes, helium lifts, Magnus curves spin, antimatter annihilates, and a
+      uniform spatial hash keeps broadphase <code>O(n)</code> on average. The
+      <b>Solver</b> slider sets iteration count; the <b>Warm</b> toggle shows the
+      difference warm-starting makes.
     </div>
 
     <h4>Rendering</h4>

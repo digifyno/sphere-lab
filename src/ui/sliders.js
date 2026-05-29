@@ -26,6 +26,10 @@ export function bindSliders() {
   bind('s-m', 'v-m', v => PHYS.magnus         = v / 100, v => (v / 100).toFixed(2));
   bind('s-r', 'v-r', v => PHYS.spawnRadius    = v,       v => String(Math.round(v)));
   bind('s-w', 'v-w', v => PHYS.wind           = v,       v => String(Math.round(v)));
+  bind('s-solver', 'v-solver',
+    v => PHYS.solverVel = v,
+    v => String(Math.round(v)),
+    v => savePref('solver', v));
 
   bind('s-vol', 'v-vol',
     v => PHYS.volume = v / 100,

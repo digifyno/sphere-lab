@@ -8,8 +8,25 @@
 const noop = () => {};
 
 function fakeCtx() {
-  return new Proxy({}, {
-    get: (t, p) => (p in t ? t[p] : noop),
+  const grad = { addColorStop: noop };
+  const dims = (a) => {
+    const n = a.filter(v => typeof v === 'number');
+    return [Math.max(1, (n[n.length - 2] | 0) || 1), Math.max(1, (n[n.length - 1] | 0) || 1)];
+  };
+  const imageData = (...a) => {
+    const [w, h] = dims(a);
+    return { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
+  };
+  return new Proxy({ canvas: { width: 1280, height: 720 } }, {
+    get: (t, p) => {
+      if (p in t) return t[p];
+      if (p === 'createImageData' || p === 'getImageData') return imageData;
+      if (p === 'createLinearGradient' || p === 'createRadialGradient' || p === 'createConicGradient') return () => grad;
+      if (p === 'createPattern') return () => ({ setTransform: noop });
+      if (p === 'measureText') return () => ({ width: 0 });
+      if (p === 'getContext') return fakeCtx;
+      return noop;
+    },
     set: (t, p, v) => { t[p] = v; return true; },
   });
 }
