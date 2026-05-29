@@ -9,6 +9,7 @@
  */
 
 import { W, cam, clearWorld } from '../core/world.js';
+import { clearContactCache } from '../physics/contactSolver.js';
 import { showSceneTitle } from '../ui/sceneTitle.js';
 
 import sandbox   from './sandbox.js';
@@ -48,6 +49,7 @@ const LABELS = {
 
 export function loadScene(name) {
   clearWorld();
+  clearContactCache();
   W.scene = name;
   W.rainSpawn = false;
 

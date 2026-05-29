@@ -159,8 +159,11 @@ function spawnImpactFor(mat, x, y, nx, ny, magnitude) {
  * Mercury-style merge. Two fluid balls of the same material at low relative
  * velocity combine into one: area (∝ r²) conserved, mass conserved, velocity
  * is mass-weighted. Prevents them from stacking as discrete balls.
+ *
+ * Exported as the contact solver's `events.merge` hook — it runs in the
+ * narrow-phase build pass, before any contact impulse is computed.
  */
-function tryFluidMerge(a, b) {
+export function tryFluidMerge(a, b) {
   if (!a.mat.fluid || a.mat.name !== b.mat.name) return false;
   if (a.pinned || b.pinned) return false;
   const dvx = b.vx - a.vx, dvy = b.vy - a.vy;
@@ -194,153 +197,101 @@ function tryFluidMerge(a, b) {
   return true;
 }
 
-export function separateBalls(a, b) {
-  const dx = b.x - a.x, dy = b.y - a.y;
-  const d = Math.sqrt(dx * dx + dy * dy) || 0.0001;
-  const overlap = (a.r + b.r) - d;
-  if (overlap <= 0) return false;
-  const nx = dx / d, ny = dy / d;
-  const ma = a.pinned ? 1e9 : a.mass;
-  const mb = b.pinned ? 1e9 : b.mass;
-  const total = ma + mb;
-  if (!a.pinned) { a.x -= nx * overlap * (mb / total); a.y -= ny * overlap * (mb / total); }
-  if (!b.pinned) { b.x += nx * overlap * (ma / total); b.y += ny * overlap * (ma / total); }
-  return true;
-}
+/**
+ * Side-effects for one resolved ball-ball contact. Invoked once per contact
+ * per step by the solver (`events.contact`) *after* impulses are applied.
+ *
+ * The contact `c` carries everything the old in-line resolver computed —
+ * normal, restitution `e`, accumulated normal/tangent impulse, and the
+ * initial approach velocity. We rebuild the legacy "impact impulse"
+ * `mag = (1+e)·|vn| / Σ(1/m)` so every downstream FX / sound / dent / crack
+ * threshold behaves exactly as before — only the *solver* changed.
+ *
+ * Split into a continuous part (contact bookkeeping, heat conduction,
+ * electrostatics — runs for resting contacts too) and an impact-gated part
+ * (sparks, sound, fracture, TNT, slime — only on genuine hits).
+ *
+ * @param {{a, b, nx:number, ny:number, e:number, pt:number, vnInit:number, invSum:number}} c
+ */
+export function ballContactEvent(c) {
+  const a = c.a, b = c.b;
+  const nx = c.nx, ny = c.ny;
+  const absVn = c.vnInit < 0 ? -c.vnInit : 0;
 
-export function collideBalls(a, b) {
-  // Skip if either ball was removed earlier this step — broadphase pairs
-  // are a snapshot, so mid-step removals (fluid merges, fractures) leave
-  // dangling references that would otherwise phantom-collide.
-  if (a._dead || b._dead) return;
-  const dx = b.x - a.x, dy = b.y - a.y;
-  const d2 = dx * dx + dy * dy;
-  const rsum = a.r + b.r;
-  if (d2 >= rsum * rsum) return;
-  const d = Math.sqrt(d2) || 0.0001;
-  const nx = dx / d, ny = dy / d;
-  const tx = -ny, ty = nx;
-
-  // mercury merge — check before resolving contact
-  if (tryFluidMerge(a, b)) return;
-
-  separateBalls(a, b);
-
-  const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
-  const vn = rvx * nx + rvy * ny;
-  if (vn > 0) return;
-
-  const baseE = Math.min(a.mat.restitution, b.mat.restitution);
-  // Use the softer material's velocity-restitution shape — rubber wants a
-  // bell curve (viscoelastic), everything else is monotonic plasticization.
-  const softerMat = a.mat.restitution < b.mat.restitution ? a.mat : b.mat;
-  const e = baseE * PHYS.restitutionMul * matVelRestScale(Math.abs(vn), softerMat) * heatRestMod(a) * heatRestMod(b);
-  const invMa = a.pinned ? 0 : 1 / a.mass;
-  const invMb = b.pinned ? 0 : 1 / b.mass;
-  const invSum = invMa + invMb || 1;
-  const j = -(1 + e) * vn / invSum;
-  a.vx -= j * nx * invMa; a.vy -= j * ny * invMa;
-  b.vx += j * nx * invMb; b.vy += j * ny * invMb;
-
-  const surfVA = a.omega * a.r;
-  const surfVB = -b.omega * b.r;
-  const rvt = (b.vx - a.vx) * tx + (b.vy - a.vy) * ty + (surfVA - surfVB);
-  const mu  = combineFriction(a.mat.friction, b.mat.friction) * PHYS.frictionMul * heatFricMod(a) * heatFricMod(b);
-  const et  = baseE * 0.12;
-  const denom = invSum + (a.pinned ? 0 : a.r * a.r / a.inertia) + (b.pinned ? 0 : b.r * b.r / b.inertia);
-  let jt = -rvt * (1 + et) / denom;
-  const maxJt = Math.abs(j) * mu;
-  if (jt > maxJt) jt = maxJt; else if (jt < -maxJt) jt = -maxJt;
-  a.vx -= jt * tx * invMa; a.vy -= jt * ty * invMa;
-  b.vx += jt * tx * invMb; b.vy += jt * ty * invMb;
-  if (!a.pinned) a.omega -= jt * a.r / a.inertia;
-  if (!b.pinned) b.omega -= jt * b.r / b.inertia;
-
+  // ---- continuous: every frame the contact exists ----
+  // electrostatic pair force (charged balls repel / attract)
   if (a.charge && b.charge) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const d2 = dx * dx + dy * dy;
     const f = a.charge * b.charge * 500 / (d2 + 10);
-    a.vx -= f * nx * invMa;
-    a.vy -= f * ny * invMa;
-    // Newton's third law — equal and opposite reaction on b.
-    b.vx += f * nx * invMb;
-    b.vy += f * ny * invMb;
+    const invMa = c.invMa, invMb = c.invMb;
+    a.vx -= f * nx * invMa; a.vy -= f * ny * invMa;
+    b.vx += f * nx * invMb; b.vy += f * ny * invMb;   // Newton's third law
   }
 
-  const heatGain = Math.abs(jt) * 0.00005 + Math.abs(vn) * 0.00002;
-  a.heat = Math.min(1, a.heat + heatGain);
-  b.heat = Math.min(1, b.heat + heatGain);
-
-  // Heat conduction — the hotter body bleeds into the colder one. Scales
-  // with the product of conductivities, so insulator-on-insulator is
-  // almost no transfer, metal-on-metal is fast. A hot steel ball dropped
-  // on an ice ball rapidly warms the ice (and melts it).
-  const ka = a.mat.cond ?? 0.3;
-  const kb = b.mat.cond ?? 0.3;
+  // heat conduction — hotter body bleeds into colder, scaled by the product
+  // of conductivities (metal↔metal fast, insulator↔insulator negligible).
   const dh = b.heat - a.heat;
   if (Math.abs(dh) > 0.01) {
-    const flow = dh * ka * kb * 0.22;
+    const flow = dh * (a.mat.cond ?? 0.3) * (b.mat.cond ?? 0.3) * 0.22;
     a.heat = clamp(a.heat + flow, 0, 1);
     b.heat = clamp(b.heat - flow, 0, 1);
   }
 
-  // Ball-ball contact also registers as a "rolling surface" — enough to
-  // feed the rolling-sound mix (two balls grinding past each other should
-  // be audible). Using the ball-ball normal is an approximation for the
-  // damping geometry but correct for the sound trigger.
+  // ball-ball contact registers as a rolling surface for the sound mix +
+  // rolling-resistance damping in step.js.
   a.groundT = 0.08; a.contactNx = nx;  a.contactNy = ny;
   b.groundT = 0.08; b.contactNx = -nx; b.contactNy = -ny;
 
+  // ---- impact-gated: genuine hits only (shares the solver's wake threshold
+  // so resting piles neither chatter nor inflate the collisions/sec graph) ----
+  if (!c.impact) return;
+  stats.collisions++;
   wake(a); wake(b);
+  const mag = (1 + c.e) * absVn / c.invSum;     // legacy impulse magnitude
 
-  // per-hit chip emission for materials with probabilistic chip shedding (ice)
+  // frictional / impact heating (resting piles never reach here, so they
+  // don't slowly warm up)
+  const heatGain = absVn * 0.00002 + Math.abs(c.pt) * 0.00005;
+  a.heat = Math.min(1, a.heat + heatGain);
+  b.heat = Math.min(1, b.heat + heatGain);
+
+  // per-hit chip emission for probabilistic-chip materials (ice)
   if (a.mat.chip && Math.random() < a.mat.chip) spawnChip(a.x + nx * a.r * 0.8, a.y + ny * a.r * 0.8, nx, ny, 40, a.mat.color);
   if (b.mat.chip && Math.random() < b.mat.chip) spawnChip(b.x - nx * b.r * 0.8, b.y - ny * b.r * 0.8, -nx, -ny, 40, b.mat.color);
 
-  // fracture — fragile materials break apart above a velocity threshold.
-  // Impulses were already applied, so the other ball still gets the kick.
-  const aFractured = tryFracture(a, Math.abs(vn));
-  const bFractured = tryFracture(b, Math.abs(vn));
+  // fracture — impulses are already applied, so the partner still got its kick
+  const aFractured = tryFracture(a, absVn);
+  const bFractured = tryFracture(b, absVn);
 
-  // TNT — hard enough contact lights the fuse. Uses material-defined
-  // threshold so gentle stacking doesn't detonate the pile.
-  if (!aFractured && a.mat.explosive && Math.abs(vn) > (a.mat.detonateV || 260)) lightFuse(a);
-  if (!bFractured && b.mat.explosive && Math.abs(vn) > (b.mat.detonateV || 260)) lightFuse(b);
+  if (!aFractured && a.mat.explosive && absVn > (a.mat.detonateV || 260)) lightFuse(a);
+  if (!bFractured && b.mat.explosive && absVn > (b.mat.detonateV || 260)) lightFuse(b);
 
-  // Slime — form an adhesion spring between the pair when either side is
-  // sticky. Hard hits are allowed to skip adhesion (rip-free on impact).
   if (!aFractured && !bFractured && (a.mat.adhesive || b.mat.adhesive)) {
-    tryAdhere(a, b, Math.abs(vn));
+    tryAdhere(a, b, absVn);
   }
 
-  const mag = Math.abs(j);
-  if (mag > 2) {
-    const hx = (a.x + b.x) * 0.5;
-    const hy = (a.y + b.y) * 0.5;
-
-    if (!aFractured) {
-      spawnImpactFor(a.mat, hx, hy, nx, ny, mag);
-      // squash amplitude scales with material deformability + optional
-      // per-material max compression override (rubber compresses harder).
-      const dA = (a.mat.deform ?? 0.4);
-      const sqMaxA = a.mat.squashMax ?? 0.35;
-      a.squash = 1 - Math.min(sqMaxA * dA, mag * 0.0025 * dA);
-      a.squashAng = Math.atan2(ny, nx);
-      // The impact on `a` comes from the direction of `b` → contact point on
-      // a is at (nx, ny) side. That's where the dent / crack sits.
-      addDent(a, Math.atan2(ny, nx), mag);
-      addCrack(a, Math.atan2(ny, nx), Math.abs(vn), b.mat);
-    }
-    if (!bFractured) {
-      spawnImpactFor(b.mat, hx, hy, -nx, -ny, mag);
-      const dB = (b.mat.deform ?? 0.4);
-      const sqMaxB = b.mat.squashMax ?? 0.35;
-      b.squash = 1 - Math.min(sqMaxB * dB, mag * 0.0025 * dB);
-      b.squashAng = Math.atan2(-ny, -nx);
-      addDent(b, Math.atan2(-ny, -nx), mag);
-      addCrack(b, Math.atan2(-ny, -nx), Math.abs(vn), a.mat);
-    }
-    if (!aFractured && !bFractured) Snd.collision(a, b, mag, Math.abs(vn));
+  const hx = (a.x + b.x) * 0.5;
+  const hy = (a.y + b.y) * 0.5;
+  if (!aFractured) {
+    spawnImpactFor(a.mat, hx, hy, nx, ny, mag);
+    const dA = (a.mat.deform ?? 0.4);
+    const sqMaxA = a.mat.squashMax ?? 0.35;
+    a.squash = 1 - Math.min(sqMaxA * dA, mag * 0.0025 * dA);
+    a.squashAng = Math.atan2(ny, nx);
+    addDent(a, Math.atan2(ny, nx), mag);
+    addCrack(a, Math.atan2(ny, nx), absVn, b.mat);
   }
-  stats.collisions++;
+  if (!bFractured) {
+    spawnImpactFor(b.mat, hx, hy, -nx, -ny, mag);
+    const dB = (b.mat.deform ?? 0.4);
+    const sqMaxB = b.mat.squashMax ?? 0.35;
+    b.squash = 1 - Math.min(sqMaxB * dB, mag * 0.0025 * dB);
+    b.squashAng = Math.atan2(-ny, -nx);
+    addDent(b, Math.atan2(-ny, -nx), mag);
+    addCrack(b, Math.atan2(-ny, -nx), absVn, a.mat);
+  }
+  if (!aFractured && !bFractured) Snd.collision(a, b, mag, absVn);
 }
 
 export function collideWall(b, wall) {

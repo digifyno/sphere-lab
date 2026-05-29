@@ -1,0 +1,239 @@
+/**
+ * Ball-ball contact solver — warm-started sequential impulse.
+ *
+ * This is the heart of the "realistic" behaviour. Instead of teleporting
+ * overlapping balls apart every iteration (which injects energy and makes
+ * piles jitter), it:
+ *
+ *   1. Builds a contact manifold once per step (one geometry pass).
+ *   2. **Warm-starts** each contact with the impulse it carried last frame,
+ *      keyed by ball-id pair — a resting stack converges in ~1 iteration
+ *      because the supporting impulses are already (almost) correct.
+ *   3. Solves velocity with a proper **Coulomb friction cone**: the friction
+ *      impulse is clamped to ±μ·Pₙ against the *accumulated* normal impulse,
+ *      not the single-iteration value, so stacks don't creep or buzz.
+ *   4. Corrects penetration with **split-impulse / NGS** — a position-only
+ *      relaxation pass (Baumgarte β with a slop band). Because it never
+ *      touches velocity, it removes overlap without adding kinetic energy.
+ *
+ * Restitution uses a velocity *slop*: contacts approaching slower than
+ * `REST_SLOP` get a zero rebound target, which kills resting micro-bounce
+ * while leaving real drops lively.
+ *
+ * The solver is intentionally free of audio/DOM/FX imports so it can run
+ * head-less in a Node test harness. All side effects (sound, sparks,
+ * fracture, fluid merge, heat) are delegated to an `events` object passed
+ * in by `step.js`.
+ */
+
+import { PHYS } from '../core/config.js';
+import { W } from '../core/world.js';
+import { balls, wake } from '../entities/ball.js';
+import { buildPairs } from './broadphase.js';
+import { matVelRestScale, heatRestMod, heatFricMod, combineFriction } from './materialMods.js';
+
+/** Approach speed (px/s) below which a contact gets no restitution rebound. */
+const REST_SLOP = 10;
+/** Approach speed (px/s) that counts as a genuine impact — wakes sleepers and
+ *  fires impact FX/sound. Below it, a contact is a resting lean: a sleeping
+ *  ball stays asleep and acts as immovable support, so the pile can settle
+ *  bottom-up without a wake cascade. */
+const WAKE_V = 10;
+/** Penetration (px) tolerated before position correction kicks in. */
+const POS_SLOP = 0.5;
+/** Fraction of excess penetration removed per position iteration. */
+const POS_BETA = 0.22;
+
+/** @typedef {{pn:number, pt:number}} CachedImpulse */
+/** Warm-start cache, keyed `"<loId>_<hiId>"`. Swapped each frame. */
+let cache = /** @type {Map<string, CachedImpulse>} */ (new Map());
+let nextCache = /** @type {Map<string, CachedImpulse>} */ (new Map());
+
+/** Reused contact list — avoids per-step allocation. */
+const contacts = [];
+
+/** Drop all warm-start state (call on scene load so stale pairs don't haunt). */
+export function clearContactCache() { cache.clear(); nextCache.clear(); }
+
+function clampv(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+/**
+ * Resolve every ball-ball contact for this step.
+ * @param {number} dt
+ * @param {{merge?:(a,b)=>boolean, contact?:(c)=>void}} events
+ */
+export function solveBallContacts(dt, events) {
+  contacts.length = 0;
+  nextCache.clear();
+
+  const pairs = buildPairs();
+  for (let p = 0; p < pairs.length; p++) {
+    const a = pairs[p][0], b = pairs[p][1];
+    if (a._dead || b._dead) continue;
+
+    // Two sleeping balls in contact are a settled island — skip entirely.
+    if (a.sleeping && b.sleeping) continue;
+
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const rsum = a.r + b.r;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= rsum * rsum) continue;
+    const d = Math.sqrt(d2) || 1e-4;
+    const nx = dx / d, ny = dy / d;
+
+    // Fluid merge is a structural change — handle before building a contact.
+    if (events.merge && events.merge(a, b)) continue;
+
+    const tx = -ny, ty = nx;
+    const vnInit = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;  // <0 = approaching
+    const approach = vnInit < 0 ? -vnInit : 0;
+    const impact = approach >= WAKE_V;
+
+    // Only a genuine impact wakes a sleeper. A gentle rest-contact leaves it
+    // frozen, where it acts as immovable support — so the ball leaning on it
+    // can itself settle and sleep instead of being perpetually re-woken.
+    if (impact) { if (a.sleeping) wake(a); if (b.sleeping) wake(b); }
+
+    const aDyn = !a.pinned && !a.sleeping;
+    const bDyn = !b.pinned && !b.sleeping;
+    const invMa = aDyn ? 1 / a.mass : 0;
+    const invMb = bDyn ? 1 / b.mass : 0;
+    const invSum = invMa + invMb;
+    if (invSum === 0) continue;            // both immovable — nothing to solve
+
+    // Restitution + friction are evaluated once, exactly as the old contact
+    // code did, so impact FX/sound stay identical.
+    const baseE = Math.min(a.mat.restitution, b.mat.restitution);
+    const softer = a.mat.restitution < b.mat.restitution ? a.mat : b.mat;
+    const e = baseE * PHYS.restitutionMul * matVelRestScale(approach, softer)
+            * heatRestMod(a) * heatRestMod(b);
+    const mu = combineFriction(a.mat.friction, b.mat.friction) * PHYS.frictionMul
+             * heatFricMod(a) * heatFricMod(b);
+
+    const angA = aDyn ? a.r * a.r / a.inertia : 0;
+    const angB = bDyn ? b.r * b.r / b.inertia : 0;
+
+    const key = a.id < b.id ? a.id + '_' + b.id : b.id + '_' + a.id;
+    const warm = PHYS.warmStart ? cache.get(key) : undefined;
+
+    contacts.push({
+      a, b, nx, ny, tx, ty,
+      aDyn, bDyn, invMa, invMb, invSum,
+      tanInvSum: invSum + angA + angB,
+      e, mu, vnInit, impact,
+      // velocity slop: gentle/resting contacts don't try to rebound
+      vnTarget: approach < REST_SLOP ? 0 : e * approach,
+      pn: warm ? warm.pn : 0,
+      pt: warm ? warm.pt : 0,
+      key
+    });
+  }
+
+  // --- warm start: replay last frame's solution ---
+  if (PHYS.warmStart) {
+    for (let i = 0; i < contacts.length; i++) {
+      const c = contacts[i];
+      const px = c.pn * c.nx + c.pt * c.tx;
+      const py = c.pn * c.ny + c.pt * c.ty;
+      const a = c.a, b = c.b;
+      if (c.aDyn) { a.vx -= px * c.invMa; a.vy -= py * c.invMa; a.omega -= c.pt * a.r / a.inertia; }
+      if (c.bDyn) { b.vx += px * c.invMb; b.vy += py * c.invMb; b.omega -= c.pt * b.r / b.inertia; }
+    }
+  }
+
+  // --- velocity iterations ---
+  const vIters = Math.max(1, PHYS.solverVel | 0);
+  for (let it = 0; it < vIters; it++) {
+    for (let i = 0; i < contacts.length; i++) {
+      const c = contacts[i];
+      const a = c.a, b = c.b;
+
+      // normal: drive relative normal velocity toward +vnTarget (separating)
+      const vn = (b.vx - a.vx) * c.nx + (b.vy - a.vy) * c.ny;
+      let dpn = -(vn - c.vnTarget) / c.invSum;
+      const pn = c.pn + dpn;
+      const clampedPn = pn < 0 ? 0 : pn;       // contacts only push
+      dpn = clampedPn - c.pn; c.pn = clampedPn;
+      if (c.aDyn) { a.vx -= dpn * c.nx * c.invMa; a.vy -= dpn * c.ny * c.invMa; }
+      if (c.bDyn) { b.vx += dpn * c.nx * c.invMb; b.vy += dpn * c.ny * c.invMb; }
+
+      // friction: tangential (incl. surface velocity from spin), clamped to
+      // the Coulomb cone against the *accumulated* normal impulse.
+      const surfVA = a.omega * a.r;
+      const surfVB = -b.omega * b.r;
+      const vt = (b.vx - a.vx) * c.tx + (b.vy - a.vy) * c.ty + (surfVA - surfVB);
+      let dpt = -vt / c.tanInvSum;
+      const maxPt = c.mu * c.pn;
+      const pt = clampv(c.pt + dpt, -maxPt, maxPt);
+      dpt = pt - c.pt; c.pt = pt;
+      if (c.aDyn) { a.vx -= dpt * c.tx * c.invMa; a.vy -= dpt * c.ty * c.invMa; a.omega -= dpt * a.r / a.inertia; }
+      if (c.bDyn) { b.vx += dpt * c.tx * c.invMb; b.vy += dpt * c.ty * c.invMb; b.omega -= dpt * b.r / b.inertia; }
+    }
+  }
+
+  // --- position correction (NGS, velocity-free) ---
+  const pIters = Math.max(0, PHYS.solverPos | 0);
+  for (let it = 0; it < pIters; it++) {
+    for (let i = 0; i < contacts.length; i++) {
+      const c = contacts[i];
+      const a = c.a, b = c.b;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dd = Math.sqrt(dx * dx + dy * dy) || 1e-4;
+      const pen = (a.r + b.r) - dd;
+      if (pen <= POS_SLOP) continue;
+      const corr = POS_BETA * (pen - POS_SLOP);
+      const cnx = dx / dd, cny = dy / dd;
+      const ra = c.invMa / c.invSum, rb = c.invMb / c.invSum;
+      if (c.aDyn) { a.x -= cnx * corr * ra; a.y -= cny * corr * ra; }
+      if (c.bDyn) { b.x += cnx * corr * rb; b.y += cny * corr * rb; }
+    }
+    // keep balls out of static walls/pegs after they've been shoved around
+    clampStatics();
+  }
+
+  // --- persist impulses for next frame + fire side-effects ---
+  for (let i = 0; i < contacts.length; i++) {
+    const c = contacts[i];
+    nextCache.set(c.key, { pn: c.pn, pt: c.pt });
+    if (events.contact) events.contact(c);
+  }
+
+  const tmp = cache; cache = nextCache; nextCache = tmp;
+}
+
+/**
+ * Position-only projection of balls out of walls + pegs. Runs inside the
+ * NGS loop so the ball-ball pass can't quietly bury balls in geometry.
+ * Velocity is untouched (the CCD pass in step.js owns wall bounce).
+ */
+function clampStatics() {
+  const walls = W.walls, pegs = W.pegs;
+  for (let i = 0; i < balls.length; i++) {
+    const b = balls[i];
+    if (b.pinned || b.sleeping) continue;
+    for (let w = 0; w < walls.length; w++) {
+      const wl = walls[w];
+      const wx = wl.x2 - wl.x1, wy = wl.y2 - wl.y1;
+      const wlen2 = wx * wx + wy * wy || 1e-4;
+      let t = ((b.x - wl.x1) * wx + (b.y - wl.y1) * wy) / wlen2;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const cx = wl.x1 + wx * t, cy = wl.y1 + wy * t;
+      const dx = b.x - cx, dy = b.y - cy;
+      const dsq = dx * dx + dy * dy;
+      if (dsq >= b.r * b.r) continue;
+      const dl = Math.sqrt(dsq) || 1e-4;
+      b.x = cx + dx / dl * b.r;
+      b.y = cy + dy / dl * b.r;
+    }
+    for (let p = 0; p < pegs.length; p++) {
+      const pg = pegs[p];
+      const dx = b.x - pg.x, dy = b.y - pg.y;
+      const rs = b.r + pg.r;
+      const dsq = dx * dx + dy * dy;
+      if (dsq >= rs * rs) continue;
+      const dl = Math.sqrt(dsq) || 1e-4;
+      b.x = pg.x + dx / dl * rs;
+      b.y = pg.y + dy / dl * rs;
+    }
+  }
+}

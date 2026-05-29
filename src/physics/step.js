@@ -20,10 +20,10 @@ import { balls, Ball, wake, SLEEP_DELAY, SLEEP_V, SLEEP_W } from '../entities/ba
 import { MATERIALS, MAT_KEYS } from '../entities/materials.js';
 import { particles, spawnHeatShimmer, spawnSmoke, spawnSparkle, spawnChip } from '../entities/particles.js';
 import { Snd } from '../audio/sound.js';
-import { collideBalls, collideWall, collidePeg } from './collisions.js';
+import { collideWall, collidePeg, ballContactEvent, tryFluidMerge } from './collisions.js';
+import { solveBallContacts } from './contactSolver.js';
 import { updateFlippers, collideFlipper } from './flippers.js';
 import { applyVortex, applySolar, applyBuoyancy, applyMagnetism, stepRipples } from './forces.js';
-import { buildPairs } from './broadphase.js';
 import { processTNT } from './tnt.js';
 import { breakSlimeBonds } from './adhesion.js';
 import { mouse } from '../input/mouse.js';
@@ -378,11 +378,7 @@ export function physicsStep(dt) {
   }
 
   if (balls.length > 0) {
-    const pairs = buildPairs();
-    const iters = balls.length > 120 ? 2 : 3;
-    for (let it = 0; it < iters; it++) {
-      for (const pr of pairs) collideBalls(pr[0], pr[1]);
-    }
+    solveBallContacts(dt, { merge: tryFluidMerge, contact: ballContactEvent });
   }
 
   // sleep bookkeeping — must come AFTER integration + solver
