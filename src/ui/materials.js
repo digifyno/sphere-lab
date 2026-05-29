@@ -16,10 +16,13 @@ export function buildMatButtons() {
     const b = document.createElement('button');
     b.className = 'mat';
     b.dataset.mat = k;
+    // Only the first 9 materials have a 1-9 keyboard shortcut; past that the
+    // badge would be misleading, so it's omitted.
+    const hotkey = i < 9 ? `<span class="mat-hotkey">${i + 1}</span>` : '';
     b.innerHTML =
       `<span class="mat-swatch" style="background:${m.color}; box-shadow: 0 0 8px ${m.color}"></span>` +
       `<span class="mat-name">${capitalize(m.name)}</span>` +
-      `<span class="mat-hotkey">${i + 1}</span>`;
+      hotkey;
     b.onclick = () => { selectedMat.id = k; updateMatButtons(); };
     wrap.appendChild(b);
   });

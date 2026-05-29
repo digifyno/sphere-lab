@@ -197,6 +197,53 @@ function testOrbit() {
   console.log(`   orbit radius band: ${minD.toFixed(0)}..${maxD.toFixed(0)} px (circular R=${R})`);
 }
 
+// ───────────────────────────── F: buoyancy by density ─────────────────────
+function testFloatVsSink() {
+  console.log('F. wood floats, steel sinks (Archimedes by density)');
+  reset();
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  W.waterY = W.ch * 0.5;
+  const wood = new Ball(W.cw / 2 + 120, W.waterY + 130, 18, MATERIALS.wood);
+  const steel = new Ball(W.cw / 2 - 120, W.waterY + 130, 18, MATERIALS.steel);
+  balls.push(wood, steel);
+  const woodY0 = wood.y;
+  run(240 * 5);
+  ok(noNaN(), 'F: no NaN');
+  ok(wood.y < woodY0 - 50, `F: wood rose toward the surface (${woodY0.toFixed(0)} → ${wood.y.toFixed(0)})`);
+  ok(wood.y < W.waterY + 60, `F: wood floats at the surface (y=${wood.y.toFixed(0)}, surface=${W.waterY})`);
+  ok(steel.y > W.waterY + 100, `F: steel sank (y=${steel.y.toFixed(0)})`);
+}
+
+// ───────────────────────────── G: balloon lift ────────────────────────────
+function testBalloonRises() {
+  console.log('G. balloon rises against gravity');
+  reset();
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const bal = new Ball(W.cw / 2, W.ch * 0.6, 16, MATERIALS.balloon);
+  balls.push(bal);
+  const y0 = bal.y;
+  run(240 * 2);
+  ok(noNaN(), 'G: no NaN');
+  ok(bal.y < y0 - 40, `G: balloon floated up (${y0.toFixed(0)} → ${bal.y.toFixed(0)})`);
+}
+
+// ───────────────────────────── H: annihilation ────────────────────────────
+function testAnnihilation() {
+  console.log('H. matter + antimatter annihilate, blasting bystanders');
+  reset({ gravity: false, drag: 0 });
+  const am = new Ball(600, 400, 16, MATERIALS.antimatter);
+  const st = new Ball(630, 400, 16, MATERIALS.steel);     // overlapping the antimatter
+  const by = new Ball(600, 470, 14, MATERIALS.rubber);    // bystander inside the blast
+  balls.push(am, st, by);
+  run(3);
+  ok(noNaN(), 'H: no NaN');
+  ok(!balls.includes(am) && !balls.includes(st), 'H: antimatter + steel both annihilated');
+  ok(balls.includes(by), 'H: bystander survived');
+  ok(Math.hypot(by.vx, by.vy) > 5, `H: bystander got blasted (|v|=${Math.hypot(by.vx, by.vy).toFixed(0)})`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -204,5 +251,8 @@ testStackSettles();
 testPackedBox();
 testCradle();
 testOrbit();
+testFloatVsSink();
+testBalloonRises();
+testAnnihilation();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

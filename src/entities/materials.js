@@ -21,7 +21,7 @@
  */
 
 /**
- * @typedef {'steel'|'rubber'|'glass'|'bowling'|'neon'|'gold'|'plasma'|'ice'|'magnet'|'mercury'|'diamond'|'obsidian'|'tnt'|'lava'|'rock'|'slime'} MaterialId
+ * @typedef {'steel'|'rubber'|'glass'|'bowling'|'neon'|'gold'|'plasma'|'ice'|'magnet'|'mercury'|'diamond'|'obsidian'|'tnt'|'lava'|'rock'|'slime'|'wood'|'sand'|'balloon'|'antimatter'|'honey'} MaterialId
  */
 
 /**
@@ -57,6 +57,8 @@
  * @property {MaterialId} [solidifiesTo] — material the ball becomes when cool (below 0.08 heat)
  * @property {number}  [initHeat]   — heat at spawn (0..1). Default 0.
  * @property {boolean} [adhesive]   — forms temporary springs with anything it touches
+ * @property {number}  [lift]       — upward anti-gravity factor (helium balloon). Net lift = g·(1.4·lift − 1)
+ * @property {boolean} [antimatter] — annihilates on contact with ordinary matter, releasing energy
  */
 
 /** @type {Record<MaterialId, Material>} */
@@ -98,7 +100,23 @@ export const MATERIALS = {
   // Slime — soft, clingy. On collision it forms a short-lived spring with
   // the contacted ball (see `tryAdhere` in collisions). Bonds break above
   // a stretch + force threshold so a hard hit rips free. Translucent body.
-  slime:   { name: 'SLIME',   color: '#7de65a', density: 0.95, restitution: 0.45, friction: 0.75, metallic: 0,    glow: 0.06, refract: 0.42, pitch: 340,  timbre: 'sine',     deform: 0.95, roll: 0.10,  heatKeep: 0.9950, cond: 0.10, bounceBack: 0.75, squashMax: 0.55, adhesive: true }
+  slime:   { name: 'SLIME',   color: '#7de65a', density: 0.95, restitution: 0.45, friction: 0.75, metallic: 0,    glow: 0.06, refract: 0.42, pitch: 340,  timbre: 'sine',     deform: 0.95, roll: 0.10,  heatKeep: 0.9950, cond: 0.10, bounceBack: 0.75, squashMax: 0.55, adhesive: true },
+  // Wood — light enough to float (density < water = 1.0), matte, dead-ish
+  // bounce, grippy. A dropped log bobs on the Water scene surface.
+  wood:    { name: 'WOOD',    color: '#a9742f', density: 0.62, restitution: 0.42, friction: 0.62, metallic: 0,    glow: 0,    refract: 0,    pitch: 420,  timbre: 'triangle', deform: 0.25, roll: 0.06,  heatKeep: 0.9950, cond: 0.08, bounceBack: 0.18, hardness: 0.40 },
+  // Sand — granular grain. Almost no bounce, very high friction, heavy rolling
+  // resistance: a pile of sand grains heaps and holds a slope (the warm-started
+  // solver makes the granular pile actually stable instead of jittering apart).
+  sand:    { name: 'SAND',    color: '#d8c084', density: 1.60, restitution: 0.14, friction: 0.95, metallic: 0,    glow: 0,    refract: 0,    pitch: 240,  timbre: 'square',   deform: 0.12, roll: 0.42,  heatKeep: 0.9955, cond: 0.20, bounceBack: 0.05, hardness: 0.30 },
+  // Balloon — helium-light. `lift` overcomes gravity so it rises, bobs, and
+  // collects against the ceiling; soft and very bouncy.
+  balloon: { name: 'BALLOON', color: '#ff5da2', density: 0.16, restitution: 0.74, friction: 0.36, metallic: 0,    glow: 0.08, refract: 0,    pitch: 620,  timbre: 'sine',     deform: 0.70, roll: 0.12,  heatKeep: 0.9920, cond: 0.04, bounceBack: 0.70, squashMax: 0.50, lift: 1 },
+  // Antimatter — touch any ordinary matter and both annihilate in a burst of
+  // energy (radial blast + gamma flash + heat). Two antimatter balls coexist.
+  antimatter:{ name:'ANTIMATTER', color:'#d9a8ff', density: 1.00, restitution: 0.50, friction: 0.20, metallic: 0,    glow: 1.35, refract: 0,    pitch: 1500, timbre: 'sawtooth', deform: 0.30, roll: 0.03,  heatKeep: 0.9970, cond: 0.50, bounceBack: 0.30, antimatter: true },
+  // Honey — viscous fluid. Merges into pools like mercury but clings, drags,
+  // and barely bounces. A heavy amber blob.
+  honey:   { name: 'HONEY',   color: '#e0a423', density: 1.42, restitution: 0.10, friction: 0.85, metallic: 0.05, glow: 0.05, refract: 0,    pitch: 150,  timbre: 'sine',     deform: 0.95, roll: 0.25,  heatKeep: 0.9940, cond: 0.20, bounceBack: 0.35, fluid: true, squashMax: 0.55 }
 };
 
 /** @type {MaterialId[]} */

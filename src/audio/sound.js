@@ -93,6 +93,64 @@ const MIN_AUDIBLE_VN_WALL = 18;
 
 /** @type {Record<string, Profile>} */
 const MODAL = {
+  // Wood — a dry knock. Mid fundamental, a couple of inharmonic partials, fast
+  // decay, soft lowpass attack (the "tok" of two blocks).
+  WOOD: {
+    resonance: 0.45, baseFreq: 440, sizeExp: 0.95,
+    modes: [
+      { ratio: 1.000, amp: 0.95, decay: 0.20 },
+      { ratio: 1.73,  amp: 0.50, decay: 0.13 },
+      { ratio: 2.61,  amp: 0.24, decay: 0.08 }
+    ],
+    attack: { type: 'lowpass', freq: 2200, dur: 0.012, amp: 0.50, velHpScale: 0.25 },
+    reverbSend: 0.10
+  },
+  // Sand — granular. Almost no ring; the sound is mostly a short filtered-noise
+  // hiss with a faint low body. A soft "pf".
+  SAND: {
+    resonance: 0.18, baseFreq: 210, sizeExp: 0.8,
+    modes: [
+      { ratio: 1.000, amp: 0.55, decay: 0.05 },
+      { ratio: 2.30,  amp: 0.20, decay: 0.03 }
+    ],
+    attack: { type: 'lowpass', freq: 1500, dur: 0.030, amp: 0.70 },
+    reverbSend: 0.05
+  },
+  // Balloon — soft latex "boing"/squeak. Light, mid-high, quick.
+  BALLOON: {
+    resonance: 0.40, baseFreq: 600, sizeExp: 1.0,
+    modes: [
+      { ratio: 1.000, amp: 0.85, decay: 0.16 },
+      { ratio: 1.55,  amp: 0.40, decay: 0.10 },
+      { ratio: 2.30,  amp: 0.16, decay: 0.06 }
+    ],
+    attack: { type: 'lowpass', freq: 1800, dur: 0.018, amp: 0.40 },
+    reverbSend: 0.10
+  },
+  // Antimatter — an electric zap: bright inharmonic high modes + two close
+  // beating partials for an unstable shimmer, sharp highpass onset.
+  ANTIMATTER: {
+    resonance: 0.55, baseFreq: 1500, sizeExp: 0.9,
+    modes: [
+      { ratio: 1.000, amp: 0.80, decay: 0.16 },
+      { ratio: 1.027, amp: 0.80, decay: 0.16 },
+      { ratio: 3.70,  amp: 0.42, decay: 0.09 },
+      { ratio: 6.10,  amp: 0.24, decay: 0.05 }
+    ],
+    onset:  { dur: 0.0010, amp: 0.34 },
+    attack: { type: 'highpass', freq: 5500, dur: 0.020, amp: 0.55, velHpScale: 0.45 },
+    reverbSend: 0.30
+  },
+  // Honey — a wet squelch. Heavily damped, very low, no ring at all.
+  HONEY: {
+    resonance: 0.16, baseFreq: 150, sizeExp: 0.85,
+    modes: [
+      { ratio: 1.000, amp: 0.85, decay: 0.08 },
+      { ratio: 2.05,  amp: 0.22, decay: 0.04 }
+    ],
+    attack: { type: 'lowpass', freq: 500, dur: 0.045, amp: 0.75 },
+    reverbSend: 0.03
+  },
   // Steel ball bearing — sharp click, bright clang with rich inharmonic overtones.
   // Ratios modelled on a solid-sphere resonance pattern (not flute-like harmonics).
   // Decays extended to match real chrome-steel: a 20 mm sphere in free air rings

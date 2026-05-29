@@ -191,6 +191,8 @@ export function physicsStep(dt) {
 
     if (PHYS.gravityOn) b.vy += PHYS.gravity * dt;
     if (PHYS.wind)      b.vx += PHYS.wind * dt;
+    // Helium lift — overcomes gravity so balloons rise + bob at the ceiling.
+    if (mat.lift && PHYS.gravityOn) b.vy -= PHYS.gravity * mat.lift * 1.4 * dt;
 
     // Rolling resistance — only active while in sustained wall contact.
     // Damps the tangential component of velocity (leaves normal alone so

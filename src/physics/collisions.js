@@ -16,9 +16,10 @@
 import { clamp, rand, TAU } from '../core/math.js';
 import { PHYS } from '../core/config.js';
 import {
-  spawnImpact, spawnSparkle, spawnChip, spawnDust, spawnSmoke
+  particles, spawnImpact, spawnSparkle, spawnChip, spawnDust, spawnSmoke
 } from '../entities/particles.js';
 import { Snd } from '../audio/sound.js';
+import { explode } from './explode.js';
 import { matVelRestScale, heatRestMod, heatFricMod, combineFriction, invMass } from './materialMods.js';
 import { stats } from './stats.js';
 import { wake, balls, Ball } from '../entities/ball.js';
@@ -198,6 +199,26 @@ export function tryFluidMerge(a, b) {
 }
 
 /**
+ * Matter + antimatter mutual annihilation. Both balls are converted to energy:
+ * a radial blast (reusing the explosion impulse + FX), a bright gamma-flash
+ * ring, and a high-frequency burst. Blast strength scales with combined mass.
+ */
+function annihilate(a, b) {
+  if (a._dead || b._dead) return;
+  a._dead = true; b._dead = true;
+  const x = (a.x + b.x) * 0.5, y = (a.y + b.y) * 0.5;
+  const energy = a.mass + b.mass;
+  const radius = 200 + energy * 12;
+  explode(x, y, 2400 + energy * 220, radius);
+  particles.push({
+    x, y, vx: 0, vy: 0, life: 0.5, maxLife: 0.5,
+    color: '#ffffff', size: 2, type: 'ring', ringR0: 6, ringR1: radius
+  });
+  Snd.noise(0.3, 0.32, 6500);
+  stats.collisions++;
+}
+
+/**
  * Side-effects for one resolved ball-ball contact. Invoked once per contact
  * per step by the solver (`events.contact`) *after* impulses are applied.
  *
@@ -215,6 +236,10 @@ export function tryFluidMerge(a, b) {
  */
 export function ballContactEvent(c) {
   const a = c.a, b = c.b;
+
+  // Matter + antimatter annihilate the instant they touch — at any speed.
+  if (!!a.mat.antimatter !== !!b.mat.antimatter) { annihilate(a, b); return; }
+
   const nx = c.nx, ny = c.ny;
   const absVn = c.vnInit < 0 ? -c.vnInit : 0;
 
