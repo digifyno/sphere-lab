@@ -21,7 +21,7 @@
  */
 
 /**
- * @typedef {'steel'|'rubber'|'glass'|'bowling'|'neon'|'gold'|'plasma'|'ice'|'magnet'|'mercury'|'diamond'|'obsidian'|'tnt'|'lava'|'rock'|'slime'|'wood'|'sand'|'balloon'|'antimatter'|'honey'} MaterialId
+ * @typedef {'steel'|'rubber'|'glass'|'bowling'|'neon'|'gold'|'plasma'|'ice'|'magnet'|'mercury'|'diamond'|'obsidian'|'tnt'|'lava'|'rock'|'slime'|'wood'|'sand'|'balloon'|'antimatter'|'honey'|'water'} MaterialId
  */
 
 /**
@@ -59,6 +59,7 @@
  * @property {boolean} [adhesive]   — forms temporary springs with anything it touches
  * @property {number}  [lift]       — upward anti-gravity factor (helium balloon). Net lift = g·(1.4·lift − 1)
  * @property {boolean} [antimatter] — annihilates on contact with ordinary matter, releasing energy
+ * @property {boolean} [fluidSim]   — particle-fluid: surface-tension cohesion + viscosity among like balls (water)
  */
 
 /** @type {Record<MaterialId, Material>} */
@@ -116,7 +117,12 @@ export const MATERIALS = {
   antimatter:{ name:'ANTIMATTER', color:'#d9a8ff', density: 1.00, restitution: 0.50, friction: 0.20, metallic: 0,    glow: 1.35, refract: 0,    pitch: 1500, timbre: 'sawtooth', deform: 0.30, roll: 0.03,  heatKeep: 0.9970, cond: 0.50, bounceBack: 0.30, antimatter: true },
   // Honey — viscous fluid. Merges into pools like mercury but clings, drags,
   // and barely bounces. A heavy amber blob.
-  honey:   { name: 'HONEY',   color: '#e0a423', density: 1.42, restitution: 0.10, friction: 0.85, metallic: 0.05, glow: 0.05, refract: 0,    pitch: 150,  timbre: 'sine',     deform: 0.95, roll: 0.25,  heatKeep: 0.9940, cond: 0.20, bounceBack: 0.35, fluid: true, squashMax: 0.55 }
+  honey:   { name: 'HONEY',   color: '#e0a423', density: 1.42, restitution: 0.10, friction: 0.85, metallic: 0.05, glow: 0.05, refract: 0,    pitch: 150,  timbre: 'sine',     deform: 0.95, roll: 0.25,  heatKeep: 0.9940, cond: 0.20, bounceBack: 0.35, fluid: true, squashMax: 0.55 },
+  // Water — particle fluid. Doesn't merge; instead each drop feels surface-
+  // tension cohesion + viscosity from its neighbours (see applyFluidSim), and
+  // the rigid solver enforces incompressibility. Very slippery + dead bounce,
+  // so a body of water flows, sloshes, and finds its level like a real liquid.
+  water:   { name: 'WATER',   color: '#3aa6e6', density: 1.00, restitution: 0.04, friction: 0.02, metallic: 0.05, glow: 0.05, refract: 0,    pitch: 520,  timbre: 'sine',     deform: 0.90, roll: 0.04,  heatKeep: 0.9930, cond: 0.40, bounceBack: 0.40, fluidSim: true, squashMax: 0.40 }
 };
 
 /** @type {MaterialId[]} */

@@ -31,12 +31,15 @@ import avalanche from './avalanche.js';
 import conveyor  from './conveyor.js';
 import chaos     from './chaos.js';
 import orbits    from './orbits.js';
+import fluid     from './fluid.js';
+import sandpile  from './sandpile.js';
+import balloons  from './balloons.js';
 
 /** @type {Record<string, () => void>} */
 const SCENES = {
   sandbox, billiards, plinko, cradle, vortex, tower, galton, pinball,
   cloth, domino, solar, rain, jelly, water, magnets, avalanche, conveyor, chaos,
-  orbits
+  orbits, fluid, sandpile, balloons
 };
 
 export const SCENE_NAMES = Object.keys(SCENES);
@@ -47,7 +50,7 @@ const LABELS = {
   cloth: 'Cloth', domino: 'Domino', solar: 'Solar', rain: 'Rain',
   jelly: 'Jelly', water: 'Water', magnets: 'Magnets',
   avalanche: 'Avalanche', conveyor: 'Conveyor', chaos: 'Chaos',
-  orbits: 'Orbits'
+  orbits: 'Orbits', fluid: 'Fluid', sandpile: 'Sandpile', balloons: 'Balloons'
 };
 
 export function loadScene(name) {

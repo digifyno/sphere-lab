@@ -29,7 +29,10 @@ const SUBS = {
   avalanche: 'Tilted slope · tower of ball',
   conveyor:  'Belts drag tangentially',
   chaos:     'Double pendulum · sensitive',
-  orbits:    'Newtonian N-body · √(GM/R) orbits'
+  orbits:    'Newtonian N-body · √(GM/R) orbits',
+  fluid:     'Dam break · particle water',
+  sandpile:  'Granular heap · angle of repose',
+  balloons:  'Helium lift · tethered + free'
 };
 
 export function showSceneTitle(name, display) {

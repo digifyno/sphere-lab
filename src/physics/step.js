@@ -23,7 +23,7 @@ import { Snd } from '../audio/sound.js';
 import { collideWall, collidePeg, ballContactEvent, tryFluidMerge } from './collisions.js';
 import { solveBallContacts } from './contactSolver.js';
 import { updateFlippers, collideFlipper } from './flippers.js';
-import { applyVortex, applySolar, applyBuoyancy, applyMagnetism, applyNbody, stepRipples } from './forces.js';
+import { applyVortex, applySolar, applyBuoyancy, applyMagnetism, applyNbody, applyFluidSim, stepRipples } from './forces.js';
 import { processTNT } from './tnt.js';
 import { breakSlimeBonds } from './adhesion.js';
 import { mouse } from '../input/mouse.js';
@@ -43,6 +43,7 @@ export function physicsStep(dt) {
   updateFlippers(dt);
   applyMagnetism(dt);
   applyNbody(dt);
+  applyFluidSim(dt);
   stepRipples(dt);
 
   const TOOL = getTool();

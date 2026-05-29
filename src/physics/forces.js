@@ -173,6 +173,60 @@ export function applyNbody(dt) {
   }
 }
 
+/** Cohesion reach as a multiple of the contact distance (rₐ+r_b). */
+const FLUID_RANGE = 2.4;
+/** Surface-tension cohesion strength (acceleration scale). Kept gentle — strong
+ *  cohesion balls the liquid up into a droplet instead of letting it level. */
+const FLUID_COH = 130;
+/** Viscosity: per-step fraction of relative velocity smoothed away (XSPH-ish). */
+const FLUID_VISC = 0.045;
+
+/**
+ * Particle-fluid forces for `fluidSim` materials (water). The rigid contact
+ * solver already keeps drops from overlapping — that's the incompressibility.
+ * On top of that we add, between like drops within range:
+ *   • cohesion: an attractive force with an Akinci-style kernel (zero at the
+ *     surface and at the edge of range, peak in between) → surface tension.
+ *   • viscosity: smooth neighbouring velocities → the body moves coherently
+ *     instead of as a gas of bouncing points.
+ * Sleeping drops are skipped, so a settled pool stays asleep. O(k²) over the
+ * fluid drops only (k ≤ ball cap), with a quick range cull.
+ */
+export function applyFluidSim(dt) {
+  const f = [];
+  for (let i = 0; i < balls.length; i++) {
+    const b = balls[i];
+    if (b.mat.fluidSim && !b.pinned && !b.sleeping) f.push(b);
+  }
+  const n = f.length;
+  if (n < 2) return;
+  for (let i = 0; i < n; i++) {
+    const a = f[i];
+    for (let j = i + 1; j < n; j++) {
+      const b = f[j];
+      if (a.mat !== b.mat) continue;               // each liquid is cohesive only with itself
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const h = (a.r + b.r) * FLUID_RANGE;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= h * h) continue;
+      const d = Math.sqrt(d2) || 1e-4;
+      const q = d / h;                              // 0..1
+      const nx = dx / d, ny = dy / d;
+
+      // cohesion — peaks mid-range, vanishes at the surface and at the edge
+      const coh = FLUID_COH * (q * (1 - q) * 4) * dt;
+      a.vx += nx * coh; a.vy += ny * coh;
+      b.vx -= nx * coh; b.vy -= ny * coh;
+
+      // viscosity — stronger for closer neighbours
+      const w = FLUID_VISC * (1 - q);
+      const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
+      a.vx += rvx * w; a.vy += rvy * w;
+      b.vx -= rvx * w; b.vy -= rvy * w;
+    }
+  }
+}
+
 /** Age water ripples + cull dead ones. Called each step from step.js. */
 export function stepRipples(dt) {
   for (const r of W.ripples) {

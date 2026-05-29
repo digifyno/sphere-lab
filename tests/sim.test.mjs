@@ -244,6 +244,33 @@ function testAnnihilation() {
   ok(Math.hypot(by.vx, by.vy) > 5, `H: bystander got blasted (|v|=${Math.hypot(by.vx, by.vy).toFixed(0)})`);
 }
 
+// ───────────────────────────── I: dam break (fluid flow) ──────────────────
+function damBreak(matKey) {
+  reset();
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const floorY = W.ch - pad, r = 10, x0 = pad + r + 2;
+  for (let row = 0; row < 16; row++)
+    for (let col = 0; col < 5; col++)
+      balls.push(new Ball(x0 + col * (2 * r - 0.5), floorY - r - row * (2 * r - 0.5), r, MATERIALS[matKey]));
+  run(240 * 5);
+  let maxX = -1e9, top = 1e9, sumY = 0;
+  for (const b of balls) { maxX = Math.max(maxX, b.x); top = Math.min(top, b.y); sumY += b.y; }
+  return { maxX, top, avgY: sumY / balls.length };
+}
+function testFluidSpreads() {
+  console.log('I. water levels into a flat pool; sand heaps (fluid vs granular)');
+  const water = damBreak('water');
+  const sand = damBreak('sand');
+  ok(noNaN(), 'I: no NaN');
+  ok(Number.isFinite(water.avgY), 'I: finite');
+  // water's mass settles lower (a shallow flat pool) than the steep sand heap
+  ok(water.avgY > sand.avgY + 5, `I: water pools lower than sand heaps (avgY ${water.avgY.toFixed(0)} > ${sand.avgY.toFixed(0)})`);
+  // and its surface is lower than the sand peak
+  ok(water.top > sand.top + 20, `I: water surface below the sand peak (top ${water.top.toFixed(0)} > ${sand.top.toFixed(0)})`);
+  console.log(`   water: top ${water.top.toFixed(0)}, avgY ${water.avgY.toFixed(0)}  |  sand: top ${sand.top.toFixed(0)}, avgY ${sand.avgY.toFixed(0)}`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -254,5 +281,6 @@ testOrbit();
 testFloatVsSink();
 testBalloonRises();
 testAnnihilation();
+testFluidSpreads();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }
