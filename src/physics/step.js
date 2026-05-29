@@ -488,7 +488,21 @@ export function physicsStep(dt) {
 
   for (let i = balls.length - 1; i >= 0; i--) {
     const b = balls[i];
-    if (b._dead || b.x < -800 || b.x > W.cw + 800 || b.y > W.ch + 600 || b.y < -500) {
+    const escaped = b.x < -800 || b.x > W.cw + 800 || b.y > W.ch + 600 || b.y < -500;
+    if (b._dead || escaped) {
+      // Structural removal (merge / fracture / annihilation / melt) can pull the
+      // support out from under a sleeping ball — wake nearby sleepers so they
+      // fall instead of hanging frozen in mid-air. (Off-screen escapes skip
+      // this: nothing meaningful rests on a ball already out of bounds.)
+      if (b._dead) {
+        const wr2 = (b.r + 50) * (b.r + 50);
+        for (let k = 0; k < balls.length; k++) {
+          const o = balls[k];
+          if (o === b || !o.sleeping) continue;
+          const dx = o.x - b.x, dy = o.y - b.y;
+          if (dx * dx + dy * dy < wr2) wake(o);
+        }
+      }
       balls.splice(i, 1);
     }
   }

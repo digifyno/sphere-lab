@@ -5,7 +5,7 @@
 
 import { rand, pick } from '../core/math.js';
 import { TAU } from '../core/math.js';
-import { balls } from '../entities/ball.js';
+import { balls, wake } from '../entities/ball.js';
 import { particles } from '../entities/particles.js';
 import { Snd } from '../audio/sound.js';
 
@@ -27,6 +27,7 @@ export function explode(x, y, force, radius) {
     b.vx += dx / d * f * 0.02;
     b.vy += dy / d * f * 0.02;
     b.omega += rand(-5, 5) * falloff;
+    wake(b);     // a sleeping ball must wake or it ignores the impulse entirely
   }
 
   for (let i = 0; i < 60; i++) {

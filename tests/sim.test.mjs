@@ -271,6 +271,76 @@ function testFluidSpreads() {
   console.log(`   water: top ${water.top.toFixed(0)}, avgY ${water.avgY.toFixed(0)}  |  sand: top ${sand.top.toFixed(0)}, avgY ${sand.avgY.toFixed(0)}`);
 }
 
+// ───────────────────────── J: high mass-ratio stack ───────────────────────
+function testHeavyOnLight() {
+  console.log('J. heavy-on-light stack stays stable (≈50:1 mass ratio)');
+  reset();
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const floorY = W.ch - pad;
+  const light = new Ball(W.cw / 2, floorY - 12, 12, MATERIALS.rubber);   // ~0.17
+  const heavy = new Ball(W.cw / 2, floorY - 12 - 12 - 22, 22, MATERIALS.gold); // ~8.5
+  balls.push(light, heavy);
+  run(240 * 5);
+  ok(noNaN(), 'J: no NaN');
+  ok(light.y + 12 <= floorY + 2, `J: light ball not crushed through floor (gap=${((light.y + 12) - floorY).toFixed(2)})`);
+  ok(heavy.y < light.y, 'J: heavy stayed on top (no penetration swap)');
+  ok(maxSpeed() < 8, `J: settled despite mass ratio (maxSpeed=${maxSpeed().toFixed(2)})`);
+  const overlap = (12 + 22) - Math.hypot(heavy.x - light.x, heavy.y - light.y);
+  ok(overlap < 3, `J: no deep penetration (overlap=${overlap.toFixed(2)})`);
+}
+
+// ───────────────────────── K: pinned ball is support ──────────────────────
+function testPinnedSupport() {
+  console.log('K. a ball rests on a pinned ball (no gravity leak)');
+  reset();
+  const anchor = new Ball(600, 400, 26, MATERIALS.steel); anchor.pinned = true;
+  const rider = new Ball(600, 400 - 26 - 18, 18, MATERIALS.steel);
+  balls.push(anchor, rider);
+  const ax0 = anchor.x, ay0 = anchor.y;
+  run(240 * 4);
+  ok(noNaN(), 'K: no NaN');
+  ok(anchor.x === ax0 && anchor.y === ay0, 'K: pinned anchor never moved');
+  ok(rider.y < anchor.y, 'K: rider stayed on top of the anchor');
+  const overlap = (26 + 18) - Math.hypot(rider.x - anchor.x, rider.y - anchor.y);
+  ok(overlap < 3 && overlap > -3, `K: rider sits on the anchor surface (overlap=${overlap.toFixed(2)})`);
+}
+
+// ───────────────────── L: spin friction dissipates ────────────────────────
+function testSpinFriction() {
+  console.log('L. friction dissipates (never adds) energy in a spinning contact');
+  reset({ gravity: false, drag: 0 });
+  // a fast-spinning ball collides into a resting one; friction acts on the big
+  // tangential slip. Wrong-signed friction would *amplify* spin + inject KE.
+  const a = new Ball(600, 400, 20, MATERIALS.rubber); a.vx = 80; a.omega = 40;
+  const b = new Ball(639, 400, 20, MATERIALS.rubber);
+  balls.push(a, b);
+  const ke0 = totalKE(), spin0 = Math.abs(a.omega);
+  run(120);
+  ok(noNaN(), 'L: no NaN');
+  ok(totalKE() <= ke0 + 1e-6, `L: KE not increased by friction (${totalKE().toFixed(0)} ≤ ${ke0.toFixed(0)})`);
+  ok(Math.abs(a.omega) <= spin0 + 1e-6, `L: spin not amplified (${Math.abs(a.omega).toFixed(1)} ≤ ${spin0})`);
+}
+
+// ───────────────────── M: wake on support removal ─────────────────────────
+function testWakeOnRemoval() {
+  console.log('M. removing a support wakes the ball resting on it');
+  reset();
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const floorY = W.ch - pad;
+  const base = new Ball(600, floorY - 20, 20, MATERIALS.steel);
+  const top = new Ball(600, floorY - 20 - 20 - 18, 18, MATERIALS.steel);
+  balls.push(base, top);
+  run(240 * 2);                       // let them settle + sleep
+  const topY = top.y;
+  base._dead = true;                  // structural removal (e.g. merge/annihilate)
+  run(240 * 2);
+  ok(noNaN(), 'M: no NaN');
+  ok(!balls.includes(base), 'M: base removed');
+  ok(top.y > topY + 20, `M: unsupported ball woke + fell (${topY.toFixed(0)} → ${top.y.toFixed(0)})`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -282,5 +352,9 @@ testFloatVsSink();
 testBalloonRises();
 testAnnihilation();
 testFluidSpreads();
+testHeavyOnLight();
+testPinnedSupport();
+testSpinFriction();
+testWakeOnRemoval();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

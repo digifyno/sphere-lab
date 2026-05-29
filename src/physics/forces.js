@@ -213,16 +213,22 @@ export function applyFluidSim(dt) {
       const q = d / h;                              // 0..1
       const nx = dx / d, ny = dy / d;
 
+      // Mass-weighted split so each interaction conserves momentum even for
+      // unequal-size drops. For equal masses fa == fb == 1, identical to a plain
+      // symmetric velocity delta (so the tuned uniform-water behaviour is kept).
+      const mt = a.mass + b.mass;
+      const fa = 2 * b.mass / mt, fb = 2 * a.mass / mt;
+
       // cohesion — peaks mid-range, vanishes at the surface and at the edge
       const coh = FLUID_COH * (q * (1 - q) * 4) * dt;
-      a.vx += nx * coh; a.vy += ny * coh;
-      b.vx -= nx * coh; b.vy -= ny * coh;
+      a.vx += nx * coh * fa; a.vy += ny * coh * fa;
+      b.vx -= nx * coh * fb; b.vy -= ny * coh * fb;
 
       // viscosity — stronger for closer neighbours
       const w = FLUID_VISC * (1 - q);
       const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
-      a.vx += rvx * w; a.vy += rvy * w;
-      b.vx -= rvx * w; b.vy -= rvy * w;
+      a.vx += rvx * w * fa; a.vy += rvy * w * fa;
+      b.vx -= rvx * w * fb; b.vy -= rvy * w * fb;
     }
   }
 }

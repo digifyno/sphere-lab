@@ -43,14 +43,18 @@ const WAKE_V = 10;
 const POS_SLOP = 0.5;
 /** Fraction of excess penetration removed per position iteration. */
 const POS_BETA = 0.22;
+/** Speculative margin (px) for wall/peg support contacts, so a ball resting
+ *  exactly on a surface still has a support constraint ready to engage. */
+const STATIC_MARGIN = 1.5;
 
 /** @typedef {{pn:number, pt:number}} CachedImpulse */
 /** Warm-start cache, keyed `"<loId>_<hiId>"`. Swapped each frame. */
 let cache = /** @type {Map<string, CachedImpulse>} */ (new Map());
 let nextCache = /** @type {Map<string, CachedImpulse>} */ (new Map());
 
-/** Reused contact list — avoids per-step allocation. */
+/** Reused contact lists — avoids per-step allocation. */
 const contacts = [];
+const staticContacts = [];
 
 /** Drop all warm-start state (call on scene load so stale pairs don't haunt). */
 export function clearContactCache() { cache.clear(); nextCache.clear(); }
@@ -78,8 +82,16 @@ export function solveBallContacts(dt, events) {
     const rsum = a.r + b.r;
     const d2 = dx * dx + dy * dy;
     if (d2 >= rsum * rsum) continue;
-    const d = Math.sqrt(d2) || 1e-4;
-    const nx = dx / d, ny = dy / d;
+    // Coincident balls (e.g. two spawned on the same pixel) have no defined
+    // normal — synthesize a deterministic one so they actually separate
+    // instead of dividing by ~0 and getting a (0,0) normal that does nothing.
+    let nx, ny, d;
+    if (d2 < 1e-6) {
+      const ang = (a.id + b.id) * 2.3999632;   // golden angle spreads clusters
+      nx = Math.cos(ang); ny = Math.sin(ang); d = 1e-3;
+    } else {
+      d = Math.sqrt(d2); nx = dx / d; ny = dy / d;
+    }
 
     // Fluid merge is a structural change — handle before building a contact.
     if (events.merge && events.merge(a, b)) continue;
@@ -129,6 +141,15 @@ export function solveBallContacts(dt, events) {
     });
   }
 
+  // --- static (wall/peg) support contacts ---
+  // collideWall (CCD) already owns wall bounce, friction, conveyor + FX. These
+  // are normal-only, no-restitution support constraints that stop the ball-ball
+  // solve from shoving a ball *into* geometry, so a heavy ball's support
+  // impulse flows to the immovable wall instead of being dumped as a light
+  // neighbour's velocity — that's what makes high-mass-ratio stacks on the
+  // floor stable.
+  buildStaticContacts();
+
   // --- warm start: replay last frame's solution ---
   if (PHYS.warmStart) {
     for (let i = 0; i < contacts.length; i++) {
@@ -139,11 +160,25 @@ export function solveBallContacts(dt, events) {
       if (c.aDyn) { a.vx -= px * c.invMa; a.vy -= py * c.invMa; a.omega -= c.pt * a.r / a.inertia; }
       if (c.bDyn) { b.vx += px * c.invMb; b.vy += py * c.invMb; b.omega -= c.pt * b.r / b.inertia; }
     }
+    for (let i = 0; i < staticContacts.length; i++) {
+      const s = staticContacts[i];
+      s.b.vx += s.pn * s.nx * s.invM;
+      s.b.vy += s.pn * s.ny * s.invM;
+    }
   }
 
   // --- velocity iterations ---
   const vIters = Math.max(1, PHYS.solverVel | 0);
   for (let it = 0; it < vIters; it++) {
+    for (let i = 0; i < staticContacts.length; i++) {
+      const s = staticContacts[i];
+      const vn = s.b.vx * s.nx + s.b.vy * s.ny;     // <0 = moving into the wall
+      let dpn = -vn / s.invM;
+      const pn = s.pn + dpn < 0 ? 0 : s.pn + dpn;
+      dpn = pn - s.pn; s.pn = pn;
+      s.b.vx += dpn * s.nx * s.invM;
+      s.b.vy += dpn * s.ny * s.invM;
+    }
     for (let i = 0; i < contacts.length; i++) {
       const c = contacts[i];
       const a = c.a, b = c.b;
@@ -157,10 +192,13 @@ export function solveBallContacts(dt, events) {
       if (c.aDyn) { a.vx -= dpn * c.nx * c.invMa; a.vy -= dpn * c.ny * c.invMa; }
       if (c.bDyn) { b.vx += dpn * c.nx * c.invMb; b.vy += dpn * c.ny * c.invMb; }
 
-      // friction: tangential (incl. surface velocity from spin), clamped to
-      // the Coulomb cone against the *accumulated* normal impulse.
-      const surfVA = a.omega * a.r;
-      const surfVB = -b.omega * b.r;
+      // friction: tangential slip at the contact point, clamped to the Coulomb
+      // cone against the *accumulated* normal impulse. The spin terms are
+      // -ω_a·r_a - ω_b·r_b so the measured slip matches the `omega -= dpt·r/I`
+      // torque convention below — the opposite sign makes friction *add* energy
+      // to spinning contacts (the rolling-energy test guards this).
+      const surfVA = -a.omega * a.r;
+      const surfVB = b.omega * b.r;
       const vt = (b.vx - a.vx) * c.tx + (b.vy - a.vy) * c.ty + (surfVA - surfVB);
       let dpt = -vt / c.tanInvSum;
       const maxPt = c.mu * c.pn;
@@ -178,11 +216,13 @@ export function solveBallContacts(dt, events) {
       const c = contacts[i];
       const a = c.a, b = c.b;
       const dx = b.x - a.x, dy = b.y - a.y;
-      const dd = Math.sqrt(dx * dx + dy * dy) || 1e-4;
+      const dsq = dx * dx + dy * dy;
+      let dd, cnx, cny;
+      if (dsq < 1e-6) { dd = 1e-3; cnx = c.nx; cny = c.ny; }   // coincident → cached normal
+      else { dd = Math.sqrt(dsq); cnx = dx / dd; cny = dy / dd; }
       const pen = (a.r + b.r) - dd;
       if (pen <= POS_SLOP) continue;
       const corr = POS_BETA * (pen - POS_SLOP);
-      const cnx = dx / dd, cny = dy / dd;
       const ra = c.invMa / c.invSum, rb = c.invMb / c.invSum;
       if (c.aDyn) { a.x -= cnx * corr * ra; a.y -= cny * corr * ra; }
       if (c.bDyn) { b.x += cnx * corr * rb; b.y += cny * corr * rb; }
@@ -197,8 +237,59 @@ export function solveBallContacts(dt, events) {
     nextCache.set(c.key, { pn: c.pn, pt: c.pt });
     if (events.contact) events.contact(c);
   }
+  for (let i = 0; i < staticContacts.length; i++) {
+    const s = staticContacts[i];
+    nextCache.set(s.key, { pn: s.pn, pt: 0 });
+  }
 
   const tmp = cache; cache = nextCache; nextCache = tmp;
+}
+
+/**
+ * Build normal-only support contacts for every awake, free ball overlapping a
+ * wall or peg. Warm-started from the cache (keyed by ball id + surface index).
+ */
+function buildStaticContacts() {
+  staticContacts.length = 0;
+  const walls = W.walls, pegs = W.pegs, warm = PHYS.warmStart;
+  for (let i = 0; i < balls.length; i++) {
+    const b = balls[i];
+    if (b.pinned || b.sleeping) continue;
+    // Particle-fluid drops are a soft model — rigid wall support stiffens their
+    // flow (a pool stops levelling). CCD + clampStatics still keep them in
+    // bounds, so they skip the rigid support contacts.
+    if (b.mat.fluidSim) continue;
+    // Speculative margin: a ball resting on a surface sits at exactly dl == r
+    // (CCD places it there), so without a margin it would never get a support
+    // contact and a heavy neighbour could push it through. The margin makes the
+    // support ready the moment something shoves it inward.
+    const r = b.r, rw = r + STATIC_MARGIN, invM = 1 / b.mass;
+    for (let w = 0; w < walls.length; w++) {
+      const wl = walls[w];
+      const wx = wl.x2 - wl.x1, wy = wl.y2 - wl.y1;
+      const wlen2 = wx * wx + wy * wy || 1e-4;
+      let t = ((b.x - wl.x1) * wx + (b.y - wl.y1) * wy) / wlen2;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const dx = b.x - (wl.x1 + wx * t), dy = b.y - (wl.y1 + wy * t);
+      const dsq = dx * dx + dy * dy;
+      if (dsq >= rw * rw) continue;
+      const dl = Math.sqrt(dsq) || 1e-4;
+      const key = b.id + 'w' + w;
+      const c = warm ? cache.get(key) : undefined;
+      staticContacts.push({ b, nx: dx / dl, ny: dy / dl, invM, pn: c ? c.pn : 0, key });
+    }
+    for (let p = 0; p < pegs.length; p++) {
+      const pg = pegs[p];
+      const dx = b.x - pg.x, dy = b.y - pg.y;
+      const rs = r + pg.r + STATIC_MARGIN;
+      const dsq = dx * dx + dy * dy;
+      if (dsq >= rs * rs) continue;
+      const dl = Math.sqrt(dsq) || 1e-4;
+      const key = b.id + 'p' + p;
+      const c = warm ? cache.get(key) : undefined;
+      staticContacts.push({ b, nx: dx / dl, ny: dy / dl, invM, pn: c ? c.pn : 0, key });
+    }
+  }
 }
 
 /**
