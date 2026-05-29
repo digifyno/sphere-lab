@@ -48,6 +48,9 @@ export const W = {
   vortexX: 0, vortexY: 0,
   solar: false,
   magnetic: false,
+  /** Newtonian mutual gravitation between every ball (Orbits scene). When on,
+   *  air drag is suppressed (space has no air) so orbits don't decay. */
+  nbody: false,
   /** @type {number | undefined} */ waterY: undefined,
   /** @type {Ripple[]} */ ripples: []
 };
@@ -82,6 +85,7 @@ export function clearWorld() {
   particles.length = 0;
   W.solar = false;
   W.magnetic = false;
+  W.nbody = false;
   W.waterY = undefined;
 }
 

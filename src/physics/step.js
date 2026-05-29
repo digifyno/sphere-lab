@@ -23,7 +23,7 @@ import { Snd } from '../audio/sound.js';
 import { collideWall, collidePeg, ballContactEvent, tryFluidMerge } from './collisions.js';
 import { solveBallContacts } from './contactSolver.js';
 import { updateFlippers, collideFlipper } from './flippers.js';
-import { applyVortex, applySolar, applyBuoyancy, applyMagnetism, stepRipples } from './forces.js';
+import { applyVortex, applySolar, applyBuoyancy, applyMagnetism, applyNbody, stepRipples } from './forces.js';
 import { processTNT } from './tnt.js';
 import { breakSlimeBonds } from './adhesion.js';
 import { mouse } from '../input/mouse.js';
@@ -42,6 +42,7 @@ export function physicsStep(dt) {
 
   updateFlippers(dt);
   applyMagnetism(dt);
+  applyNbody(dt);
   stepRipples(dt);
 
   const TOOL = getTool();
@@ -306,13 +307,16 @@ export function physicsStep(dt) {
       if (dx * dx + dy * dy < 100 * 100) b.heat = Math.min(1, b.heat + dt * 3);
     }
 
-    // drag scales with cross-sectional area — big balls feel heavy air
+    // drag scales with cross-sectional area — big balls feel heavy air.
+    // Suppressed in N-body space (vacuum) so orbits don't slowly spiral in.
     const vmag = len(b.vx, b.vy);
     const areaScale = b.area / REF_AREA;
-    const dragK = PHYS.drag * areaScale * (1 + vmag * 0.0018);
-    const dragFactor = Math.max(0, 1 - dragK * dt);
-    b.vx *= dragFactor; b.vy *= dragFactor;
-    b.omega *= Math.max(0, 1 - PHYS.drag * areaScale * dt * 0.8);
+    if (!W.nbody) {
+      const dragK = PHYS.drag * areaScale * (1 + vmag * 0.0018);
+      const dragFactor = Math.max(0, 1 - dragK * dt);
+      b.vx *= dragFactor; b.vy *= dragFactor;
+      b.omega *= Math.max(0, 1 - PHYS.drag * areaScale * dt * 0.8);
+    }
 
     // Magnus: F⊥ = k · ω · v · A. Velocity snapshot to avoid self-contamination.
     if (vmag > 10 && Math.abs(b.omega) > 0.1) {

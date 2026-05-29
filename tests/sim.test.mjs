@@ -17,6 +17,7 @@ import { balls, Ball } from '../src/entities/ball.js';
 import { MATERIALS } from '../src/entities/materials.js';
 import { physicsStep } from '../src/physics/step.js';
 import { clearContactCache } from '../src/physics/contactSolver.js';
+import { NBODY_G } from '../src/physics/forces.js';
 
 const DT = 1 / 240;
 let passed = 0, failed = 0;
@@ -173,11 +174,35 @@ function testCradle() {
   ok(ratio > 0.30, `D: meaningful transfer to far ball (ratio=${ratio.toFixed(2)})`);
 }
 
+// ───────────────────────────── E: N-body orbit ────────────────────────────
+function testOrbit() {
+  console.log('E. N-body orbit stays bound');
+  reset({ gravity: false, drag: 0 });
+  W.nbody = true;
+  const cx = 600, cy = 400, R = 250;
+  const star = new Ball(cx, cy, 46, MATERIALS.gold); star.pinned = true; balls.push(star);
+  const p = new Ball(cx + R, cy, 12, MATERIALS.rock);
+  p.vx = 0; p.vy = Math.sqrt(NBODY_G * star.mass / R);   // circular orbit speed
+  balls.push(p);
+  let minD = 1e9, maxD = 0;
+  for (let i = 0; i < 240 * 13; i++) {                    // ~1.1 orbital periods
+    physicsStep(DT);
+    const d = Math.hypot(p.x - cx, p.y - cy);
+    if (!Number.isFinite(d)) { maxD = Infinity; break; }
+    minD = Math.min(minD, d); maxD = Math.max(maxD, d);
+  }
+  ok(noNaN(), 'E: no NaN');
+  ok(minD > 46 + 12, `E: planet never fell into the star (minD=${minD.toFixed(0)})`);
+  ok(maxD < R * 1.6, `E: orbit stayed bound (maxD=${maxD.toFixed(0)} < ${(R * 1.6).toFixed(0)})`);
+  console.log(`   orbit radius band: ${minD.toFixed(0)}..${maxD.toFixed(0)} px (circular R=${R})`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
 testStackSettles();
 testPackedBox();
 testCradle();
+testOrbit();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

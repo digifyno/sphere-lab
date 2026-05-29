@@ -132,6 +132,47 @@ export function applyMagnetism(dt) {
   }
 }
 
+/** Gravitational constant for the in-sim N-body field. Tuned so a ~r40 star
+ *  holds ~r12 planets in stable orbits at screen scale (see scenes/orbits.js,
+ *  which sets each planet's tangential speed to √(G·M_star / R)). */
+export const NBODY_G = 130000;
+/** Softening length² — keeps the 1/r² force finite as bodies get close, so a
+ *  near-miss slingshots instead of launching to infinity. */
+const NBODY_SOFT2 = 90 * 90;
+
+/**
+ * Newtonian mutual attraction between every pair of balls. O(n²), but the
+ * Orbits scene keeps n modest. Pinned bodies (the central star) attract
+ * others without drifting themselves. Called once per step from `step.js`
+ * when `W.nbody` is set.
+ */
+export function applyNbody(dt) {
+  if (!W.nbody) return;
+  const n = balls.length;
+  for (let i = 0; i < n; i++) {
+    const a = balls[i];
+    for (let j = i + 1; j < n; j++) {
+      const b = balls[j];
+      if (a.pinned && b.pinned) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d2 = dx * dx + dy * dy;
+      const inv = 1 / (d2 + NBODY_SOFT2);
+      const d = Math.sqrt(d2) || 0.001;
+      const nx = dx / d, ny = dy / d;
+      if (!a.pinned) {
+        a.vx += nx * NBODY_G * b.mass * inv * dt;
+        a.vy += ny * NBODY_G * b.mass * inv * dt;
+        if (a.sleeping) wake(a);
+      }
+      if (!b.pinned) {
+        b.vx -= nx * NBODY_G * a.mass * inv * dt;
+        b.vy -= ny * NBODY_G * a.mass * inv * dt;
+        if (b.sleeping) wake(b);
+      }
+    }
+  }
+}
+
 /** Age water ripples + cull dead ones. Called each step from step.js. */
 export function stepRipples(dt) {
   for (const r of W.ripples) {

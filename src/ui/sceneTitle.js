@@ -28,7 +28,8 @@ const SUBS = {
   magnets:   'Mutual 1/r² attraction',
   avalanche: 'Tilted slope · tower of ball',
   conveyor:  'Belts drag tangentially',
-  chaos:     'Double pendulum · sensitive'
+  chaos:     'Double pendulum · sensitive',
+  orbits:    'Newtonian N-body · √(GM/R) orbits'
 };
 
 export function showSceneTitle(name, display) {
