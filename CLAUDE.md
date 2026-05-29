@@ -1,8 +1,11 @@
 # SPHERE LAB — project map for AI agents
 
-This is an HTML5 canvas 2D physics sandbox. 14 interactive scenes, 8 materials,
-realistic impulse-based ball dynamics. **Run with a static server** (see
-`serve.sh`) because ES modules can't load over `file://`.
+This is an HTML5 canvas 2D physics sandbox. 22 interactive scenes, 22 materials,
+realistic rigid-body dynamics built on a **warm-started sequential-impulse
+contact solver** (Coulomb friction cone + energy-free NGS position correction),
+plus Newtonian N-body gravity and a particle fluid. **Run with a static server**
+(see `serve.sh`) because ES modules can't load over `file://`. A head-less Node
+test harness lives in `tests/` — run `npm test` (no dependencies).
 
 ## Quick task → file map
 
@@ -10,8 +13,15 @@ realistic impulse-based ball dynamics. **Run with a static server** (see
 | ---------------------------------- | ----------------------------------------- |
 | A material's density / bounciness  | `src/entities/materials.js`               |
 | A scene's layout                   | `src/scenes/<name>.js`                    |
-| Add a new scene                    | new file in `src/scenes/` + register in `src/scenes/index.js` + new `<button class="tab">` in `index.html` |
-| Collision response math            | `src/physics/collisions.js`               |
+| Add a new scene                    | new file in `src/scenes/` + register in `src/scenes/index.js` + new `<button class="tab">` in `index.html` + tagline in `src/ui/sceneTitle.js` |
+| Ball-ball solver (warm start, friction cone, NGS) | `src/physics/contactSolver.js` |
+| Contact side-effects (FX, sound, fracture, heat)  | `src/physics/collisions.js::ballContactEvent` |
+| Ball/wall + ball/peg collision math | `src/physics/collisions.js::collideWall / collidePeg` |
+| N-body gravity / particle fluid    | `src/physics/forces.js::applyNbody / applyFluidSim` |
+| Antimatter annihilation            | `src/physics/collisions.js::annihilate`   |
+| Helium lift (balloons)             | `src/physics/step.js` (`mat.lift`)        |
+| Solver iterations / warm-start     | `src/core/config.js` (`solverVel/solverPos/warmStart`) + UI `s-solver`/`t-warm` |
+| Head-less physics tests            | `tests/` (`npm test`)                     |
 | Pinball flippers (angle + kick)    | `src/physics/flippers.js`                 |
 | Magnetism between balls            | `src/physics/forces.js::applyMagnetism`   |
 | Water ripples (spawn + decay)      | `src/physics/forces.js` + `src/render/world.js::drawWater` |
@@ -46,10 +56,11 @@ realistic impulse-based ball dynamics. **Run with a static server** (see
 index.html
   └── src/main.js                   bootstraps UI, input, loads default scene
         └── src/loop.js             requestAnimationFrame driver
-              ├── src/physics/step.js
-              │     ├── physics/forces.js           gravity, vortex, buoyancy
+              ├── src/physics/step.js               integrate + orchestrate
+              │     ├── physics/forces.js           gravity, vortex, buoyancy, N-body, fluid
               │     ├── physics/broadphase.js       grid → candidate pairs
-              │     ├── physics/collisions.js       impulse resolution
+              │     ├── physics/contactSolver.js    warm-started ball-ball solver (+ NGS)
+              │     ├── physics/collisions.js       wall/peg math + per-contact side-effects
               │     └── physics/materialMods.js     heat / velocity effects
               └── src/render/*
                     ├── canvas.js                   setup + resize + offscreen buffers
@@ -103,6 +114,14 @@ gold is ≈14× the mass of rubber at the same radius.
 | Ice      | 0.92    | 0.32   | 0.04     | **Fragile** above 380 px/s, `chip=0.25` (chips every hit), floats |
 | Magnet   | 5.0     | 0.40   | 0.55     | Mutual `1/r²` attraction |
 | Mercury  | 13.5    | 0.22   | 0.08     | `fluid=true` — merges with other mercury at low relative speed |
+| Wood     | 0.62    | 0.42   | 0.62     | Floats (ρ < water), matte, dead bounce |
+| Sand     | 1.6     | 0.14   | 0.95     | Granular — high friction + `roll`, heaps at an angle of repose |
+| Balloon  | 0.16    | 0.74   | 0.36     | `lift=1` — rises against gravity, bobs at the ceiling |
+| Antimatter | 1.0   | 0.50   | 0.20     | `antimatter` — annihilates ordinary matter on contact |
+| Honey    | 1.42    | 0.10   | 0.85     | `fluid=true` — viscous pool, clings to walls |
+| Water    | 1.0     | 0.04   | 0.02     | `fluidSim=true` — particle fluid: cohesion + viscosity, flows + levels |
+
+(Also defined in `materials.js`: diamond, obsidian, TNT, lava, rock, slime.)
 
 Key behaviours:
 - **Squash amplitude + recovery** scale with `material.deform`. Rubber compresses heavily and stays compressed for ~150 ms; steel snaps back within one frame.
@@ -130,7 +149,25 @@ Key behaviours:
 
 ## Physics model (crib notes)
 
-- Impulse-based collisions with separate normal + tangential passes.
+- **Ball-ball contacts use a warm-started sequential-impulse solver**
+  (`contactSolver.js`), not a one-shot impulse. Per step it builds the contact
+  manifold once, replays each contact's cached impulse (warm start, keyed by
+  ball-id pair), runs `PHYS.solverVel` velocity iterations (normal then friction,
+  the friction clamped to ±μ·Pₙ on the *accumulated* normal impulse — a true
+  Coulomb cone), then `PHYS.solverPos` **NGS** position iterations that remove
+  penetration with no velocity change (no energy injection). Restitution uses a
+  velocity slop (`REST_SLOP`) so resting contacts don't micro-bounce. **Sleeping
+  islands:** a sleeping ball is immovable for gentle contacts and only wakes on
+  an impact above `WAKE_V`, so piles settle bottom-up without a wake cascade.
+- **Walls / pegs / flippers stay in the CCD path** (`collideWall/collidePeg/
+  collideFlipper`) — static single-shot projection. A position-only
+  `clampStatics()` keeps balls out of geometry after the ball-ball push.
+- **Contact side-effects** (sparks, modal sound, fracture, TNT, slime, dents,
+  cracks, squash, heat conduction, annihilation) are fired **once per contact**
+  by `collisions.js::ballContactEvent`, which the solver calls via an `events`
+  hook. The legacy impulse magnitude `(1+e)·|vn|/Σ(1/m)` is reconstructed there
+  so every FX/sound threshold is unchanged — the solver itself is pure and
+  head-less-testable (no audio/DOM imports).
 - `I = ½ m r²` (solid disk) feeds rotational response to friction.
 - **Restitution combines as `min(eA, eB)`** — the softer material dominates,
   matches experiment better than an arithmetic average.
@@ -149,9 +186,21 @@ Key behaviours:
 - **Broadphase:** uniform spatial hash with cell = max(40, 2.2·maxR).
   Emits pairs from a cell plus 4 forward-directional neighbors (no dupes).
 - **Buoyancy:** Archimedes — `F = ρ_fluid · V_sub · g`, with `ρ_fluid = 1.0`.
-- **Sleeping:** balls with `|v| < 6` and `|ω| < 0.8` for `0.5 s` go to sleep
-  (skip force integration + CCD). Woken by contact (collisions.js), tool
-  interaction, spring force, magnetism, or gravity toggle.
+  Materials lighter than water (wood, balloon) float; balloons additionally get
+  `mat.lift` anti-gravity in `step.js` and rise.
+- **N-body gravity** (`forces.js::applyNbody`, gated on `W.nbody`): mutual
+  softened 1/r² attraction between all balls. Pinned bodies (the star) attract
+  without drifting; air drag is suppressed when `W.nbody` so orbits persist.
+  `scenes/orbits.js` seeds circular orbits at `v = √(NBODY_G·M / R)`.
+- **Particle fluid** (`forces.js::applyFluidSim`, materials with `fluidSim`):
+  surface-tension cohesion (Akinci-style kernel) + viscosity between like drops;
+  the rigid solver supplies incompressibility. Water flows + levels; it does
+  **not** merge (that's the separate `fluid` flag used by mercury/honey/lava).
+- **Antimatter** (`mat.antimatter`): touching ordinary matter triggers
+  `collisions.js::annihilate` — both balls die in a mass-scaled blast.
+- **Sleeping:** balls with `|v| < 9` and `|ω| < 1.2` for `0.45 s` go to sleep
+  (skip force integration + CCD). Woken by an impact contact, tool interaction,
+  spring force, magnetism, N-body pull, or gravity toggle.
 
 ## Render pipeline (per frame, in order)
 
@@ -220,3 +269,27 @@ Key behaviours:
 - **Impact rings are `type: 'ring'` particles** — rendered differently and
   skipped by the step integrator's position update.
 - **Conveyor direction:** `wall.conveyorV > 0` drags toward (x2, y2).
+- **The solver is pure on purpose.** `contactSolver.js` imports no audio/DOM —
+  keep it that way so `tests/` can run it head-less. New per-contact effects go
+  in `collisions.js::ballContactEvent`, not the solver.
+- **Warm-start cache keys on ball ids** (`a.id+'_'+b.id`). Ids never repeat, so
+  no stale-pair aliasing; the cache is cleared on `loadScene`.
+
+## Tests
+
+Head-less Node harness in `tests/` — `npm test` (no dependencies). A browser
+shim (`tests/shim.mjs`) stubs `document`/`window`/canvas so the **real**
+`physicsStep` and the full app boot run under Node (audio is a safe no-op
+because `Snd.ctx` stays null).
+
+- `tests/sim.test.mjs` — physics invariants: momentum conservation, no energy
+  injection (total KE+PE never rises), resting stacks settle + sleep, no
+  tunnelling in a packed box, Newton's-cradle transfer, bound N-body orbit,
+  buoyancy by density, balloon lift, antimatter annihilation, fluid vs granular.
+- `tests/scenes.test.mjs` — every registered scene steps 3 s with no NaN/throw.
+- `tests/boot.test.mjs` — imports `main.js` (runs `init()`): UI, prefs, scene,
+  loop wiring must resolve cleanly.
+
+When you change the solver, forces, materials, or a scene, run `npm test`. Add a
+new invariant when you add a new physical behaviour — assert the *property*
+(conservation, boundedness, settling), not exact numbers.

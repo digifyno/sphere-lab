@@ -2,11 +2,15 @@
 
 **Live demo: [spherelab.clickdeeper.com](https://spherelab.clickdeeper.com/)**
 
-A browser-based 2D physics sandbox where ten materials — steel, rubber, glass,
-bowling, neon, gold, plasma, ice, magnet, mercury — interact across eighteen
-scenes. Built on HTML5 canvas with zero dependencies, modal impact-sound
-synthesis, and per-material surface detail (brushed metal, crystalline ice,
-iron-filing magnets, dented gold).
+A browser-based 2D physics sandbox where twenty-two materials — steel, rubber,
+glass, bowling, neon, gold, plasma, ice, magnet, mercury, diamond, obsidian,
+TNT, lava, rock, slime, wood, sand, balloon, antimatter, honey, water — interact
+across twenty-two scenes. A **warm-started sequential-impulse solver** (proper
+Coulomb friction cone + energy-free position correction) keeps stacks and
+granular piles rock-solid; on top of it sit Newtonian **N-body gravity** and a
+**particle fluid**. Built on HTML5 canvas with zero dependencies, modal
+impact-sound synthesis, and per-material surface detail (brushed metal,
+crystalline ice, iron-filing magnets, dented gold).
 
 ## Running it
 
@@ -27,23 +31,30 @@ Open `http://localhost:8000/`.
 
 ### Physics
 
-- Impulse-based ball/ball, ball/wall, ball/peg, and pinball-flipper collisions,
-  with continuous collision detection (substep count derived from velocity).
-- Fixed-timestep solver at 240 Hz via an accumulator in the main loop.
+- **Warm-started sequential-impulse contact solver** for ball/ball collisions:
+  each contact reuses last frame's accumulated impulse, friction is clamped to a
+  proper **Coulomb cone** against the accumulated normal impulse, and overlap is
+  removed by an energy-free **split-impulse (NGS)** position pass — so stacks and
+  granular piles settle solid instead of jittering apart. Settled contacts sleep
+  as islands.
+- Continuous collision detection against walls, pegs, and pinball flippers
+  (substep count derived from velocity); fixed-timestep at 240 Hz.
+- **Newtonian N-body gravitation** (Orbits scene): every ball attracts every
+  other with a softened 1/r² force; planets orbit at v = √(G·M / R).
+- **Particle fluid** (water): surface-tension cohesion + viscosity between drops,
+  with the rigid solver supplying incompressibility — water flows, sloshes, and
+  finds its level instead of merging into blobs.
 - Per-material density, friction, restitution, rolling resistance, thermal
   conductivity, and squash behaviour (viscoelastic rubber jiggles back over
   ~150 ms; steel snaps back instantly).
-- Static friction: balls settle on slight slopes instead of creeping.
-- Thermal conduction on contact — a hot steel ball dropped on ice melts the
-  ice; two rubber balls (both insulators) barely share heat.
-- Magnetic polarity: each magnet has a north/south pole. Opposites attract,
-  like signs repel, so magnets form chains instead of clumps.
-- Fragile materials accumulate damage. Enough sub-threshold hits and the
-  next moderate impact shatters the ball.
-- Gold plastically deforms — hard impacts leave permanent dents that rotate
-  with the ball; re-heating gold anneals the dents away.
-- Mercury is fluid: same-kind drops merge on low-speed contact, and the
-  ball clings to walls before sliding off.
+- Thermal conduction on contact; fragile materials crack then shatter; gold
+  dents permanently and anneals when re-heated; mercury/honey/lava pool by
+  merging.
+- Buoyancy by density (wood floats, steel sinks), **helium lift** (balloons rise
+  and bob on taut tethers), granular **sand** that holds its angle of repose, and
+  **antimatter** that annihilates ordinary matter in a mass-scaled blast.
+- Magnetic polarity (opposite poles attract, like poles repel), Magnus curve on
+  spinning balls, conveyor drag, vortex + solar fields, TNT chain detonation.
 
 ### Sound
 
@@ -75,9 +86,9 @@ Open `http://localhost:8000/`.
 
 ## Scenes
 
-Avalanche · Billiards · Chaos · Cloth · Conveyor · Cradle · Domino ·
-Galton · Jelly · Magnets · Pinball · Plinko · Rain · Sandbox · Solar ·
-Tower · Vortex · Water
+Avalanche · Balloons · Billiards · Chaos · Cloth · Conveyor · Cradle · Domino ·
+Fluid · Galton · Jelly · Magnets · Orbits · Pinball · Plinko · Rain · Sandbox ·
+Sandpile · Solar · Tower · Vortex · Water
 
 ## Controls
 
@@ -96,9 +107,25 @@ Tools are bound to the top row of the keyboard:
 | I   | Heat    | Heat balls near the cursor                |
 
 Arrow keys fire the pinball flippers. `Ctrl-Z` undoes. The HUD exposes live
-sliders for gravity, drag, restitution, friction, Magnus, wind, and spawn
-radius, plus toggles for bloom, shadows, refraction, trails, chromatic
-aberration, film grain, and motion streaks.
+sliders for gravity, drag, restitution, friction, Magnus, wind, spawn radius,
+and **solver iterations**, plus toggles for bloom, shadows, refraction, trails,
+chromatic aberration, film grain, motion streaks, and solver **warm-starting**
+(turn it off to feel the difference in a stack).
+
+## Tests
+
+A head-less harness runs the *real* simulation under a tiny browser shim — no
+browser or dependencies required:
+
+```bash
+npm test
+```
+
+- `tests/sim.test.mjs` — physics invariants: momentum conservation, no energy
+  injection, resting stacks settle + sleep, no tunnelling, Newton's-cradle
+  transfer, bound N-body orbits, buoyancy, helium lift, annihilation, fluid flow.
+- `tests/scenes.test.mjs` — every scene steps for 3 s with no NaN/throw.
+- `tests/boot.test.mjs` — boots the whole app (UI, prefs, scene, loop) headless.
 
 ## Architecture
 
@@ -107,13 +134,15 @@ map. Layer overview:
 
 - `src/core/` — shared state, math, theme, undo, persistence.
 - `src/entities/` — ball, particle, and material definitions.
-- `src/physics/` — integrator, broadphase, collisions, forces, flippers,
-  fracture.
+- `src/physics/` — integrator (`step.js`), broadphase, the warm-started contact
+  solver (`contactSolver.js`), contact side-effects (`collisions.js`), forces
+  (gravity, N-body, fluid, magnetism, buoyancy), flippers, fracture, TNT.
 - `src/render/` — canvas setup, ball shader, world geometry, effects,
   post-FX.
 - `src/audio/` — modal sound synthesis and rolling-voice mix.
-- `src/scenes/` — the eighteen scene constructors.
+- `src/scenes/` — the twenty-two scene constructors.
 - `src/ui/` — HUD, sliders, inspector, save/load, scene title overlay.
+- `tests/` — head-less Node harness (browser shim + invariant/scene/boot tests).
 
 ## License
 
