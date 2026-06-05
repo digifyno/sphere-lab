@@ -74,6 +74,9 @@ const PER_BALL_COOLDOWN = 0.045;
  *  rolling / sliding contact, not a real hit. Sounds are skipped.     */
 const MIN_AUDIBLE_VN_BALL = 14;
 const MIN_AUDIBLE_VN_WALL = 18;
+/** In-world speed of sound (px/s) for the Doppler shift. Tuned so a fast ball
+ *  (hundreds–thousands px/s) bends pitch audibly without cartoonish extremes. */
+const SOUND_C = 5000;
 
 /**
  * @typedef {Object} Mode
@@ -605,6 +608,33 @@ export const Snd = {
   /* ------------------------------------------------------------------ */
 
   /**
+   * Listener-relative spatial factors (listener = canvas centre): distance
+   * attenuation, an air-absorption lowpass cutoff (Hz, highs fade with
+   * distance), and a Doppler frequency multiplier from the body's radial
+   * velocity. Pure math (no audio nodes) so it is unit-testable head-less.
+   * @param {{x?:number,y?:number,vx?:number,vy?:number}} ball
+   * @returns {{distGain:number, airCut:number, dop:number}}
+   */
+  _spatial(ball) {
+    const cw = W.cw || 1000, ch = W.ch || 700;
+    const dx = (ball.x ?? cw / 2) - cw / 2;
+    const dy = (ball.y ?? ch / 2) - ch / 2;
+    const dist = Math.hypot(dx, dy) || 1e-3;
+    const norm = clamp(dist / (Math.hypot(cw, ch) * 0.5), 0, 1);
+    // gentle inverse-distance loudness: full at the centre → ~0.5 at the corner
+    const distGain = 1 - norm * 0.5;
+    // air absorbs highs over distance — slide the lowpass ~18 kHz → ~4 kHz
+    const airCut = 18000 - norm * 14000;
+    // Doppler: radial velocity > 0 = receding = lower pitch (and vice-versa)
+    let dop = 1;
+    if (ball.vx !== undefined) {
+      const vr = (ball.vx * dx + ball.vy * dy) / dist;
+      dop = clamp(SOUND_C / (SOUND_C + vr), 0.7, 1.45);
+    }
+    return { distGain, airCut, dop };
+  },
+
+  /**
    * Emit one ball's voice at `strength`, damped by the other participant's
    * softness. Accepts a ball so it can extract size (pitch) + x (pan).
    *
@@ -633,7 +663,15 @@ export const Snd = {
     const panVal = clamp((px / cw) * 2 - 1, -0.85, 0.85);
     const pan = this.ctx.createStereoPanner();
     pan.pan.value = panVal;
-    pan.connect(this.master);
+    // Spatialization: an air-absorption lowpass on the dry path (reverb sends
+    // bypass it — the room is the late field), distance attenuation folded into
+    // the amplitudes below, and Doppler applied to the modal frequencies.
+    const sp = this._spatial(ball);
+    const air = this.ctx.createBiquadFilter();
+    air.type = 'lowpass';
+    air.frequency.value = sp.airCut;
+    pan.connect(air);
+    air.connect(this.master);
 
     // Two-stage attack. `onset` (if present) is an ultra-brief broadband
     // click — the unfiltered impulsive contact pop that precedes any
@@ -647,12 +685,12 @@ export const Snd = {
     //   • onset duration shortens with strength (Hertzian contact time)
     //   • mode decays lengthen with strength (more energy → longer ring)
     //   • reverb send rises with strength (hard hits radiate into the room)
-    const attackAmp = strength * (1 - otherSoftness * 0.35);
+    const attackAmp = strength * (1 - otherSoftness * 0.35) * sp.distGain;
     if (profile.onset) {
       const onsetDur = profile.onset.dur * clamp(1.20 - strength * 0.45, 0.70, 1.25);
       this._onset(
         { dur: onsetDur, amp: profile.onset.amp },
-        strength * (1 - otherSoftness * 0.25),
+        strength * (1 - otherSoftness * 0.25) * sp.distGain,
         pan
       );
     }
@@ -663,7 +701,7 @@ export const Snd = {
     this._attack(effAtk, attackAmp, pan);
 
     // Modes — pitch + brightness depend on size + velocity
-    const modeScale = strength * (1 - otherSoftness * 0.75) * profile.resonance;
+    const modeScale = strength * (1 - otherSoftness * 0.75) * profile.resonance * sp.distGain;
     if (modeScale < 0.003) return;
 
     const radius = ball.r || REF_R;
@@ -714,7 +752,7 @@ export const Snd = {
       const o = this.ctx.createOscillator();
       const g = this.ctx.createGain();
       o.type = 'sine';
-      o.frequency.setValueAtTime(freq * detune, t);
+      o.frequency.setValueAtTime(freq * detune * sp.dop, t);
 
       g.gain.setValueAtTime(0, t);
       g.gain.linearRampToValueAtTime(peak, t + 0.002);

@@ -108,6 +108,11 @@ export function solveBallContacts(dt, events) {
     const vnInit = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;  // <0 = approaching
     const approach = vnInit < 0 ? -vnInit : 0;
     const impact = approach >= WAKE_V;
+    // EXPERIMENT: tangential restitution slip captured at build time
+    const _surfVA0 = -a.omega * a.r, _surfVB0 = b.omega * b.r;
+    const vtInit = (b.vx - a.vx) * tx + (b.vy - a.vy) * ty + (_surfVA0 - _surfVB0);
+    const etRaw = Math.min(a.mat.tanRest ?? 0, b.mat.tanRest ?? 0);
+    const et = etRaw > 1 ? 1 : etRaw < 0 ? 0 : etRaw;
 
     // Only a genuine impact wakes a sleeper. A gentle rest-contact leaves it
     // frozen, where it acts as immovable support — so the ball leaning on it
@@ -149,6 +154,7 @@ export function solveBallContacts(dt, events) {
       e, mu, vnInit, impact,
       // velocity slop: gentle/resting contacts don't try to rebound
       vnTarget: approach < REST_SLOP ? 0 : e * approach,
+      vtTarget: (impact && et > 0) ? -et * vtInit : 0,
       pn: warm ? warm.pn : 0,
       pt: warm ? warm.pt : 0,
       key
@@ -214,7 +220,7 @@ export function solveBallContacts(dt, events) {
       const surfVA = -a.omega * a.r;
       const surfVB = b.omega * b.r;
       const vt = (b.vx - a.vx) * c.tx + (b.vy - a.vy) * c.ty + (surfVA - surfVB);
-      let dpt = -vt / c.tanInvSum;
+      let dpt = -(vt - c.vtTarget) / c.tanInvSum;
       const maxPt = c.mu * c.pn;
       const pt = clampv(c.pt + dpt, -maxPt, maxPt);
       dpt = pt - c.pt; c.pt = pt;

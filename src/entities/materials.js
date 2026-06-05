@@ -65,7 +65,7 @@
 /** @type {Record<MaterialId, Material>} */
 export const MATERIALS = {
   steel:   { name: 'STEEL',   color: '#c2cedc', density: 7.85, restitution: 0.86, friction: 0.33, metallic: 0.98, glow: 0,    refract: 0,    pitch: 680,  timbre: 'triangle', deform: 0.05, roll: 0.003, heatKeep: 0.9985, cond: 0.90, bounceBack: 0.00, hardness: 0.88, anisotropy: 0.65, brushAxis: 0, clearcoat: 0.40 },
-  rubber:  { name: 'RUBBER',  color: '#e84a66', density: 1.15, restitution: 0.82, friction: 0.90, metallic: 0.03, glow: 0,    refract: 0,    pitch: 260,  timbre: 'sine',     deform: 1.0 , roll: 0.180, heatKeep: 0.9930, cond: 0.05, bounceBack: 0.85, hardness: 0.10, squashMax: 0.48 },
+  rubber:  { name: 'RUBBER',  color: '#e84a66', density: 1.15, restitution: 0.82, friction: 0.90, metallic: 0.03, glow: 0,    refract: 0,    pitch: 260,  timbre: 'sine',     deform: 1.0 , roll: 0.180, heatKeep: 0.9930, cond: 0.05, bounceBack: 0.85, hardness: 0.10, squashMax: 0.48, tanRest: 0.45 },
   glass:   { name: 'GLASS',   color: '#8fd0ff', density: 2.5,  restitution: 0.95, friction: 0.10, metallic: 0.20, glow: 0,    refract: 0.9,  pitch: 1500, timbre: 'sine',     deform: 0.0,  roll: 0.008, heatKeep: 0.9955, cond: 0.25, bounceBack: 0.00, fragile: true },
   bowling: { name: 'BOWLING', color: '#1a1f28', density: 2.20, restitution: 0.32, friction: 0.58, metallic: 0.12, glow: 0,    refract: 0,    pitch: 120,  timbre: 'square',   deform: 0.30, roll: 0.035, heatKeep: 0.9955, cond: 0.15, bounceBack: 0.15, hardness: 0.55 },
   neon:    { name: 'NEON',    color: '#4affb4', density: 0.9,  restitution: 0.78, friction: 0.40, metallic: 0,    glow: 1.0,  refract: 0,    pitch: 900,  timbre: 'sine',     deform: 0.55, roll: 0.070, heatKeep: 0.9960, cond: 0.35, bounceBack: 0.55 },
