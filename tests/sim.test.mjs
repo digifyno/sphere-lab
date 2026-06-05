@@ -346,6 +346,29 @@ function testWakeOnRemoval() {
   ok(top.y > topY + 20, `M: unsupported ball woke + fell (${topY.toFixed(0)} → ${top.y.toFixed(0)})`);
 }
 
+// ───────────────────── O: a dropped ball bounces repeatedly ────────────────
+function testRepeatedBounce() {
+  console.log('O. a dropped ball bounces more than once (support contacts must not steal the bounce)');
+  reset();
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const floorY = W.ch - pad;
+  // Steel is lively (e=0.86); it should bounce many times. The "bounces once
+  // then sticks" bug was the no-restitution wall support contact zeroing the
+  // approach velocity of a ball caught in the speculative margin band.
+  const b = new Ball(W.cw / 2, floorY - 300, 20, MATERIALS.steel);
+  balls.push(b);
+  let rebounds = 0;
+  for (let i = 0; i < 240 * 6; i++) {
+    const vyPrev = b.vy;
+    physicsStep(DT);
+    if (vyPrev > 50 && b.vy < -20) rebounds++;   // was falling, now moving up = a real bounce
+    if (b.sleeping) break;
+  }
+  ok(noNaN(), 'O: no NaN');
+  ok(rebounds >= 3, `O: ball rebounded repeatedly, not just once (rebounds=${rebounds})`);
+}
+
 // ───────────────────── N: hot plasma can't inject energy ───────────────────
 function testHotPlasmaNoGain() {
   console.log('N. hot plasma bounce never gains energy (restitution capped at 1)');
@@ -378,6 +401,7 @@ testHeavyOnLight();
 testPinnedSupport();
 testSpinFriction();
 testWakeOnRemoval();
+testRepeatedBounce();
 testHotPlasmaNoGain();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

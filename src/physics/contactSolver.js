@@ -46,6 +46,14 @@ const POS_BETA = 0.22;
 /** Speculative margin (px) for wall/peg support contacts, so a ball resting
  *  exactly on a surface still has a support constraint ready to engage. */
 const STATIC_MARGIN = 1.5;
+/** Inward approach speed (px/s) above which a ball that is still *outside* a
+ *  surface (within the speculative margin, not yet touching) is treated as a
+ *  genuine impact and left for collideWall to bounce — NOT braked by the
+ *  no-restitution support contact. Without this gate a free-falling ball that
+ *  lands in the [r, r+margin] band has its approach velocity killed to zero
+ *  with no rebound, so it "bounces once then sticks". Resting / loaded balls
+ *  (slower than this) still get support, so high-mass-ratio stacks stay stable. */
+const STATIC_SUPPORT_VN = 15;
 
 /** @typedef {{pn:number, pt:number}} CachedImpulse */
 /** Warm-start cache, keyed `"<loId>_<hiId>"`. Swapped each frame. */
@@ -280,20 +288,28 @@ function buildStaticContacts() {
       const dsq = dx * dx + dy * dy;
       if (dsq >= rw * rw) continue;
       const dl = Math.sqrt(dsq) || 1e-4;
+      const nx = dx / dl, ny = dy / dl;
+      // Ball still outside the surface and approaching fast → a real impact, not
+      // a rest. Don't brake it here; collideWall bounces it once it penetrates.
+      if (dl > r && (b.vx * nx + b.vy * ny) < -STATIC_SUPPORT_VN) continue;
       const key = b.id + 'w' + w;
       const c = warm ? cache.get(key) : undefined;
-      staticContacts.push({ b, nx: dx / dl, ny: dy / dl, invM, pn: c ? c.pn : 0, key });
+      staticContacts.push({ b, nx, ny, invM, pn: c ? c.pn : 0, key });
     }
     for (let p = 0; p < pegs.length; p++) {
       const pg = pegs[p];
       const dx = b.x - pg.x, dy = b.y - pg.y;
-      const rs = r + pg.r + STATIC_MARGIN;
+      const surf = r + pg.r, rs = surf + STATIC_MARGIN;
       const dsq = dx * dx + dy * dy;
       if (dsq >= rs * rs) continue;
       const dl = Math.sqrt(dsq) || 1e-4;
+      const nx = dx / dl, ny = dy / dl;
+      // Same gate as walls: a fast approacher still clear of the peg surface is
+      // an impact for collidePeg to bounce, not a rest to support.
+      if (dl > surf && (b.vx * nx + b.vy * ny) < -STATIC_SUPPORT_VN) continue;
       const key = b.id + 'p' + p;
       const c = warm ? cache.get(key) : undefined;
-      staticContacts.push({ b, nx: dx / dl, ny: dy / dl, invM, pn: c ? c.pn : 0, key });
+      staticContacts.push({ b, nx, ny, invM, pn: c ? c.pn : 0, key });
     }
   }
 }
