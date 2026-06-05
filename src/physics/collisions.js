@@ -244,16 +244,6 @@ export function ballContactEvent(c) {
   const absVn = c.vnInit < 0 ? -c.vnInit : 0;
 
   // ---- continuous: every frame the contact exists ----
-  // electrostatic pair force (charged balls repel / attract)
-  if (a.charge && b.charge) {
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const d2 = dx * dx + dy * dy;
-    const f = a.charge * b.charge * 500 / (d2 + 10);
-    const invMa = c.invMa, invMb = c.invMb;
-    a.vx -= f * nx * invMa; a.vy -= f * ny * invMa;
-    b.vx += f * nx * invMb; b.vy += f * ny * invMb;   // Newton's third law
-  }
-
   // heat conduction — hotter body bleeds into colder, scaled by the product
   // of conductivities (metal↔metal fast, insulator↔insulator negligible).
   const dh = b.heat - a.heat;

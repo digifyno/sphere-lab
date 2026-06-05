@@ -3,7 +3,7 @@
  *
  * Densities are relative to water (g/cm³), scaled down slightly so simulation
  * stays numerically nice. They produce realistic mass ratios: a gold ball is
- * ~14× heavier than a rubber ball of the same size.
+ * ~15× heavier than a rubber ball of the same size (17.5 / 1.15).
  *
  * `deform` (0..1) drives impact visuals + squash recovery speed:
  *   0   — fully rigid (glass, ice). Squash is bypassed; fracture may occur.

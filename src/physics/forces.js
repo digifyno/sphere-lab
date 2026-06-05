@@ -51,7 +51,12 @@ export function applyBuoyancy(b, dt) {
   const frac = clamp(submerged / (b.r * 2), 0, 1);
 
   const fluidDensity = 1.0;
-  const ballVol = Math.PI * b.r * b.r * 0.001;
+  // Displaced "volume" uses the SAME r²·k convention as ball mass
+  // (ball.js: mass = r²·density·0.001) — no π. Mixing a πr² volume against a
+  // π-less mass would scale buoyancy by π (~3.1×), making everything up to
+  // ρ≈3.8 float (glass, rock, sand…). With the matching convention the float
+  // line sits at ρ ≈ 1.2 (the ×1.2 fudge below), so only sub-water materials rise.
+  const ballVol = b.r * b.r * 0.001;
   // Buoyancy rides on gravity — with gravity off (toggled via G or
   // button), a submerged ball should just drift, not spontaneously
   // shoot upward. Drag + splash still apply so water keeps its feel.
@@ -138,7 +143,7 @@ export function applyMagnetism(dt) {
 export const NBODY_G = 130000;
 /** Softening length² — keeps the 1/r² force finite as bodies get close, so a
  *  near-miss slingshots instead of launching to infinity. */
-const NBODY_SOFT2 = 90 * 90;
+export const NBODY_SOFT2 = 90 * 90;
 
 /**
  * Newtonian mutual attraction between every pair of balls. O(n²), but the

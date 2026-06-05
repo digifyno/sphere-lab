@@ -206,13 +206,18 @@ function testFloatVsSink() {
   W.waterY = W.ch * 0.5;
   const wood = new Ball(W.cw / 2 + 120, W.waterY + 130, 18, MATERIALS.wood);
   const steel = new Ball(W.cw / 2 - 120, W.waterY + 130, 18, MATERIALS.steel);
-  balls.push(wood, steel);
+  // Rock (ρ=2.7 > water) MUST sink. This guards the buoyancy unit-scale: a
+  // πr² displaced "volume" against a π-less (r²·ρ) mass scaled buoyancy by π,
+  // so everything up to ρ≈3.8 wrongly floated. Rock floating ⇒ that bug is back.
+  const rock = new Ball(W.cw / 2, W.waterY + 130, 18, MATERIALS.rock);
+  balls.push(wood, steel, rock);
   const woodY0 = wood.y;
   run(240 * 5);
   ok(noNaN(), 'F: no NaN');
   ok(wood.y < woodY0 - 50, `F: wood rose toward the surface (${woodY0.toFixed(0)} → ${wood.y.toFixed(0)})`);
   ok(wood.y < W.waterY + 60, `F: wood floats at the surface (y=${wood.y.toFixed(0)}, surface=${W.waterY})`);
   ok(steel.y > W.waterY + 100, `F: steel sank (y=${steel.y.toFixed(0)})`);
+  ok(rock.y > W.waterY + 150, `F: rock (ρ>water) sank instead of floating (y=${rock.y.toFixed(0)})`);
 }
 
 // ───────────────────────────── G: balloon lift ────────────────────────────
@@ -341,6 +346,23 @@ function testWakeOnRemoval() {
   ok(top.y > topY + 20, `M: unsupported ball woke + fell (${topY.toFixed(0)} → ${top.y.toFixed(0)})`);
 }
 
+// ───────────────────── N: hot plasma can't inject energy ───────────────────
+function testHotPlasmaNoGain() {
+  console.log('N. hot plasma bounce never gains energy (restitution capped at 1)');
+  reset({ gravity: false, drag: 0 });
+  PHYS.heatFx = true;
+  // heatRestMod boosts plasma restitution by up to 1.2× per ball; two hot
+  // plasma balls would give a combined e>1 (separating faster than approaching)
+  // and pump KE every bounce. The solver clamps e≤1, so KE must not rise.
+  const a = new Ball(600, 400, 20, MATERIALS.plasma); a.vx = 15; a.heat = 1;
+  const b = new Ball(640, 400, 20, MATERIALS.plasma); b.vx = -15; b.heat = 1;
+  balls.push(a, b);
+  const ke0 = totalKE();
+  run(120);
+  ok(noNaN(), 'N: no NaN');
+  ok(totalKE() <= ke0 + 1e-6, `N: hot plasma didn't inject KE (${totalKE().toFixed(2)} ≤ ${ke0.toFixed(2)})`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -356,5 +378,6 @@ testHeavyOnLight();
 testPinnedSupport();
 testSpinFriction();
 testWakeOnRemoval();
+testHotPlasmaNoGain();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

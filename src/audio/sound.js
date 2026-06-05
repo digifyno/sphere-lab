@@ -371,10 +371,72 @@ const MODAL = {
     onset:  { dur: 0.0008, amp: 0.38 },
     attack: { type: 'highpass', freq: 10000, dur: 0.006, amp: 0.45, velHpScale: 0.60 },
     reverbSend: 0.58
+  },
+  // Water — a plop, not a ring. One heavily-damped sub-thud under a bandpass
+  // splash transient (like mercury, lighter + brighter). No tonal modes.
+  WATER: {
+    resonance: 0.14, baseFreq: 170, sizeExp: 0.8,
+    modes: [
+      { ratio: 1.000, amp: 0.55, decay: 0.05 }
+    ],
+    attack: { type: 'bandpass', freq: 1400, dur: 0.060, amp: 0.55, q: 1.8 },
+    reverbSend: 0.06
+  },
+  // Lava — molten squelch. Very low, no ring, soft lowpass onset.
+  LAVA: {
+    resonance: 0.18, baseFreq: 130, sizeExp: 0.8,
+    modes: [
+      { ratio: 1.000, amp: 0.80, decay: 0.07 },
+      { ratio: 2.10,  amp: 0.20, decay: 0.04 }
+    ],
+    attack: { type: 'lowpass', freq: 520, dur: 0.045, amp: 0.72 },
+    reverbSend: 0.05
+  },
+  // Rock — dense basalt thud. Low stony knock, fast decay, lowpass attack.
+  ROCK: {
+    resonance: 0.42, baseFreq: 200, sizeExp: 0.9,
+    modes: [
+      { ratio: 1.000, amp: 0.95, decay: 0.14 },
+      { ratio: 1.84,  amp: 0.40, decay: 0.08 },
+      { ratio: 2.72,  amp: 0.16, decay: 0.05 }
+    ],
+    attack: { type: 'lowpass', freq: 900, dur: 0.030, amp: 0.62 },
+    reverbSend: 0.08
+  },
+  // Slime — soft clingy elastomer. A wet, very-low damped squelch, no ring.
+  SLIME: {
+    resonance: 0.16, baseFreq: 160, sizeExp: 0.85,
+    modes: [
+      { ratio: 1.000, amp: 0.85, decay: 0.09 }
+    ],
+    attack: { type: 'lowpass', freq: 600, dur: 0.050, amp: 0.78 },
+    reverbSend: 0.04
+  },
+  // TNT — dull, dense casing thud (the crate, not the blast). Lowpass onset.
+  TNT: {
+    resonance: 0.40, baseFreq: 180, sizeExp: 0.9,
+    modes: [
+      { ratio: 1.000, amp: 0.95, decay: 0.16 },
+      { ratio: 2.05,  amp: 0.34, decay: 0.09 }
+    ],
+    attack: { type: 'lowpass', freq: 700, dur: 0.040, amp: 0.66 },
+    reverbSend: 0.06
   }
 };
 
-const FALLBACK = MODAL.NEON;
+// Generic dull thud for any material without its own modal voice — neutral on
+// purpose so an unmapped material reads as "something heavy hit" rather than
+// borrowing NEON's bright acrylic ring. (All 22 current materials are mapped
+// above; this only guards future additions.)
+const FALLBACK = {
+  resonance: 0.30, baseFreq: 240, sizeExp: 0.9,
+  modes: [
+    { ratio: 1.000, amp: 0.85, decay: 0.10 },
+    { ratio: 1.84,  amp: 0.32, decay: 0.06 }
+  ],
+  attack: { type: 'lowpass', freq: 1600, dur: 0.016, amp: 0.55 },
+  reverbSend: 0.06
+};
 
 export const Snd = {
   /** @type {AudioContext | null} */  ctx: null,
@@ -764,6 +826,17 @@ export const Snd = {
       case 'MERCURY': return { type: 'lowpass',  freq: 520,  q: 0.7, gs: 0.90 };
       case 'DIAMOND': return { type: 'highpass', freq: 8500, q: 2.5, gs: 0.95 };
       case 'OBSIDIAN':return { type: 'bandpass', freq: 1600, q: 3.0, gs: 0.95 };
+      // Granular + dense materials scrape rather than ring (broadband, not tonal).
+      case 'SAND':    return { type: 'highpass', freq: 3600, q: 0.6, gs: 1.10 }; // grain hiss
+      case 'ROCK':    return { type: 'bandpass', freq: 1400, q: 1.2, gs: 1.05 }; // gritty scrape
+      case 'WOOD':    return { type: 'bandpass', freq: 700,  q: 1.4, gs: 1.05 }; // woody scrape
+      // Fluids + soft bodies drag wetly/dully — low lowpass, no resonant band.
+      case 'WATER':   return { type: 'lowpass',  freq: 650,  q: 0.7, gs: 0.80 };
+      case 'HONEY':   return { type: 'lowpass',  freq: 360,  q: 0.7, gs: 0.85 };
+      case 'LAVA':    return { type: 'lowpass',  freq: 240,  q: 0.7, gs: 0.90 };
+      case 'SLIME':   return { type: 'lowpass',  freq: 600,  q: 0.8, gs: 0.85 };
+      case 'BALLOON': return { type: 'lowpass',  freq: 1600, q: 0.9, gs: 0.90 }; // latex squeak
+      case 'TNT':     return { type: 'lowpass',  freq: 420,  q: 0.8, gs: 1.00 };
       default:        return { type: 'bandpass', freq: 1500, q: 2.0, gs: 1.00 };
     }
   },

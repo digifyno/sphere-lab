@@ -12,7 +12,7 @@
 import { W, cam, setGravityUI } from '../core/world.js';
 import { Ball, balls } from '../entities/ball.js';
 import { MATERIALS } from '../entities/materials.js';
-import { NBODY_G } from '../physics/forces.js';
+import { NBODY_G, NBODY_SOFT2 } from '../physics/forces.js';
 import { rand, pick, TAU } from '../core/math.js';
 
 export default function orbits() {
@@ -39,7 +39,13 @@ export default function orbits() {
   for (let k = 0; k < radii.length; k++) {
     const R = radii[k];
     const ang = rand(0, TAU);
-    const p = new Ball(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R, rand(9, 16), MATERIALS[pick(planetMats)]);
+    // The 2nd orbit hosts a moon, so give it a heavy, large body (gold). A
+    // light random planet's pull is too weak at the moon's separation — under
+    // the N-body softening — to keep the moon bound.
+    const host = k === 1;
+    const pr = host ? 22 : rand(9, 16);
+    const p = new Ball(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R, pr,
+                       host ? MATERIALS.gold : MATERIALS[pick(planetMats)]);
     // tangential (counter-clockwise) speed for a near-circular orbit; a touch
     // under circular for the inner ones gives gentle eccentricity.
     const v = Math.sqrt(NBODY_G * M / R) * rand(0.88, 1.02);
@@ -48,11 +54,14 @@ export default function orbits() {
     p.omega = rand(-3, 3);
     balls.push(p);
 
-    // give the 2nd planet a tiny moon — a body orbiting a body orbiting a star
-    if (k === 1) {
-      const mr = 24;
+    // give the 2nd planet a moon — a body orbiting a body orbiting a star
+    if (host) {
+      const mr = 34;   // clear of the r22 host + r5 moon, inside its Hill radius
       const moon = new Ball(p.x + mr, p.y, 5, MATERIALS.ice);
-      const mv = Math.sqrt(NBODY_G * p.mass / mr);
+      // Softened circular speed: applyNbody uses a ∝ 1/(d²+NBODY_SOFT2), so the
+      // plain √(G·m/R) Keplerian seed is ~4× too fast at this tiny separation
+      // and the moon escapes. Fold in the softening so it actually orbits.
+      const mv = Math.sqrt(NBODY_G * p.mass * mr / (mr * mr + NBODY_SOFT2));
       moon.vx = p.vx;
       moon.vy = p.vy + mv;      // orbital velocity added on top of the planet's
       balls.push(moon);

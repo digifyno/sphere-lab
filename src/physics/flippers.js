@@ -16,6 +16,8 @@ import { Snd } from '../audio/sound.js';
 import { stats } from './stats.js';
 import { wake } from '../entities/ball.js';
 import { matVelRestScale, heatRestMod } from './materialMods.js';
+import { tryFracture } from './fracture.js';
+import { lightFuse } from './tnt.js';
 
 export function spawnFlipper(px, py, length, side) {
   const restAngle = side < 0 ?  Math.PI * 0.18 : Math.PI - Math.PI * 0.18;
@@ -93,6 +95,12 @@ export function collideFlipper(b, f) {
   b.groundT = 0.08;
   b.contactNx = nx;
   b.contactNy = ny;
+
+  // Same static-surface side-effects as walls/pegs: a hard hit shatters a
+  // fragile ball or lights an explosive's fuse. tryFracture returns true when
+  // it consumed the ball, so skip the now-stale impact FX (matches collideWall).
+  if (tryFracture(b, Math.abs(vn))) return;
+  if (b.mat.explosive && Math.abs(vn) > (b.mat.detonateV || 260)) lightFuse(b);
 
   spawnImpact(cx, cy, nx, ny, Math.abs(vn) * b.mass, '#ffb340');
   // ball-on-flipper: the ball's own material voice + a small flipper-whack.

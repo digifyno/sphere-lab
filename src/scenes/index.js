@@ -9,8 +9,11 @@
  */
 
 import { W, cam, clearWorld } from '../core/world.js';
+import { PHYS } from '../core/config.js';
 import { clearContactCache } from '../physics/contactSolver.js';
 import { showSceneTitle } from '../ui/sceneTitle.js';
+import { getPref } from '../core/persistence.js';
+import { updateToggle } from '../ui/hud.js';
 
 import sandbox   from './sandbox.js';
 import billiards from './billiards.js';
@@ -58,6 +61,12 @@ export function loadScene(name) {
   clearContactCache();
   W.scene = name;
   W.rainSpawn = false;
+
+  // Render toggles are global + persisted. Reset the ones a transient scene
+  // may force on (chaos enables trails) back to the user's saved pref on every
+  // load, so a scene's opt-in works while it's active but never leaks forward.
+  PHYS.trails = !!getPref('t-trail', false);
+  updateToggle('t-trail', PHYS.trails);
 
   cam.tx = W.cw / 2; cam.ty = W.ch / 2; cam.tz = 1;
   cam.x  = W.cw / 2; cam.y  = W.ch / 2; cam.zoom = 1;

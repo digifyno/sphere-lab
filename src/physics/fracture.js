@@ -28,7 +28,11 @@ const FRACTURE_V = {
  * @returns {boolean} true if fractured
  */
 export function tryFracture(b, impactV) {
-  if (!b.mat.fragile || b.isFragment) return false;
+  // `_dead` guard makes fracture idempotent: a fragile ball can be the a/b of
+  // several contacts resolved in one step, and the solver fires events.contact
+  // for each. Without this, the second hard contact shatters an already-dead
+  // ball again, spawning a duplicate fragment shower (doubled mass + KE).
+  if (b._dead || !b.mat.fragile || b.isFragment) return false;
   const base = FRACTURE_V[b.mat.name] ?? 500;
   // Accumulated damage lowers the effective threshold — a cracked glass
   // ball shatters on a hit that a fresh one would shrug off.
@@ -81,7 +85,10 @@ function shatter(b) {
 
   Snd.shatter(b);
 
-  // remove the original
+  // remove the original. Mark `_dead` first (the tryFracture guard + step.js
+  // cleanup both key off it) so a second contact this step can't re-shatter it;
+  // the immediate splice keeps the collideWall/collidePeg return contract.
+  b._dead = true;
   const idx = balls.indexOf(b);
   if (idx >= 0) balls.splice(idx, 1);
 }

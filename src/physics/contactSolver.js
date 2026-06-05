@@ -117,8 +117,14 @@ export function solveBallContacts(dt, events) {
     // code did, so impact FX/sound stay identical.
     const baseE = Math.min(a.mat.restitution, b.mat.restitution);
     const softer = a.mat.restitution < b.mat.restitution ? a.mat : b.mat;
-    const e = baseE * PHYS.restitutionMul * matVelRestScale(approach, softer)
-            * heatRestMod(a) * heatRestMod(b);
+    // Clamp to a physical ceiling of 1. Two passive bodies can't separate
+    // faster than they approached without an external energy source — and the
+    // factors above can exceed 1 (hot plasma's heatRestMod up to 1.2 each, or
+    // a >1.0 Bounce slider), which would inject KE every bounce and break the
+    // "KE+PE never rises" invariant. Active energy sources (pinball bumpers,
+    // bouncy walls) live in collisions.js / flippers.js and stay uncapped.
+    const e = Math.min(1, baseE * PHYS.restitutionMul * matVelRestScale(approach, softer)
+            * heatRestMod(a) * heatRestMod(b));
     const mu = combineFriction(a.mat.friction, b.mat.friction) * PHYS.frictionMul
              * heatFricMod(a) * heatFricMod(b);
 

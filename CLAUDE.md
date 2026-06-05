@@ -109,7 +109,7 @@ gold is ≈14× the mass of rubber at the same radius.
 | Glass    | 2.5     | 0.95   | 0.10     | **Fragile** above 550 px/s, sparkle FX, tink sound |
 | Bowling  | 3.5     | 0.22   | 0.60     | Deep thud, dust puff, absorbs energy |
 | Neon     | 0.9     | 0.78   | 0.40     | Emissive, colored sparkle |
-| Gold     | 15.0    | 0.35   | 0.32     | Very heavy, `deform=0.6` (dents), warm ding |
+| Gold     | 17.5    | 0.38   | 0.42     | Very heavy, `deform=0.55` (dents), warm ding |
 | Plasma   | 0.3     | 0.70   | 0.18     | Detuned buzz, bright sparkle, lots of glow |
 | Ice      | 0.92    | 0.32   | 0.04     | **Fragile** above 380 px/s, `chip=0.25` (chips every hit), floats |
 | Magnet   | 5.0     | 0.40   | 0.55     | Mutual `1/r²` attraction |

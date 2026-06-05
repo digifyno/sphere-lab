@@ -40,7 +40,11 @@ export function drawWalls(tx) {
     const crawl = ((t * Math.abs(w.conveyorV) * 0.01) % 30);
     tx.strokeStyle = 'rgba(200, 240, 255, 0.55)';
     tx.lineWidth = 1.2;
-    for (let d = -crawl; d < L; d += 30) {
+    // Crawl toward (x2,y2) when conveyorV>0 (the drag direction): crawl grows
+    // with t, so a positive belt needs an INCREASING start offset (+u toward
+    // x2), a negative one a decreasing offset (-u toward x1).
+    const phase = sign > 0 ? crawl - 30 : -crawl;
+    for (let d = phase; d < L; d += 30) {
       if (d < 5 || d > L - 5) continue;
       const cx = w.x1 + ux * d, cy = w.y1 + uy * d;
       const tipX = cx + ux * 6 * sign,   tipY = cy + uy * 6 * sign;
