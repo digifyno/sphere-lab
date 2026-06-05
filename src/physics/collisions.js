@@ -306,7 +306,15 @@ export function ballContactEvent(c) {
     addDent(b, Math.atan2(-ny, -nx), mag);
     addCrack(b, Math.atan2(-ny, -nx), absVn, a.mat);
   }
-  if (!aFractured && !bFractured) Snd.collision(a, b, mag, absVn);
+  // Hertzian contact-time brightness: a short contact (stiff/light/fast) gives
+  // a bright tick, a long one (soft/heavy/slow) a dull thunk — f_c ∝ 1/τ,
+  // τ ∝ (mEff/kEff)^(2/5)·v^(-1/5). Reduced mass + combined stiffness come
+  // straight off the contact; audio-only, mutates nothing.
+  const mEff = 1 / c.invSum;
+  const kEff = 1 / ((a.mat.deform ?? 0.4) + (b.mat.deform ?? 0.4) + 0.05);
+  const tau = Math.pow(mEff / kEff, 0.4) * Math.pow(Math.max(absVn, 1), -0.2);
+  const brightness = clamp(1 / (1 + tau * 3), 0.2, 1);
+  if (!aFractured && !bFractured) Snd.collision(a, b, mag, absVn, brightness);
 }
 
 export function collideWall(b, wall) {
@@ -348,7 +356,13 @@ export function collideWall(b, wall) {
   const fluidPull = b.mat.fluid ? 2.6 : 1;
   const mu = b.mat.friction * PHYS.frictionMul * heatFricMod(b) * restFactor * fluidPull;
   const denom = 1 + b.r * b.r / b.inertia * b.mass;
-  let jt = -relT * b.mass * (1 + baseE * 0.08) / denom;
+  // Tangential restitution (super-ball off a wall): an elastic material stores
+  // shear in the contact patch and rebounds with reversed slip v_t' = −e_t·v_t.
+  // Capped to |e_t|≤1 and still clamped to the Coulomb cone below, so it can
+  // only ever redirect tangential energy into spin — never inject any.
+  let et = b.mat.tanRest ?? 0; et = et > 1 ? 1 : et < 0 ? 0 : et;
+  const relTtarget = (et > 0 && Math.abs(vn) >= 10) ? -et * relT : 0;
+  let jt = -(relT - relTtarget) * b.mass * (1 + baseE * 0.08) / denom;
   const maxJt = Math.abs(vn) * mu * b.mass;
   if (jt > maxJt) jt = maxJt; else if (jt < -maxJt) jt = -maxJt;
   b.vx += jt * tx / b.mass; b.vy += jt * ty / b.mass;

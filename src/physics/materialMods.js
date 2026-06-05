@@ -7,13 +7,19 @@
 import { PHYS } from '../core/config.js';
 import { clamp } from '../core/math.js';
 
+/** Reference speed (px/s) where the velocity-restitution multiplier reaches
+ *  ~0.85. Below it the curve is near-elastic; above it restitution decays. */
+const REF_V = 250;
+
 /**
- * Restitution falls smoothly with impact speed. Real materials plasticize at
- * high speed; the curve goes from 1 (gentle) toward 0.35 (violent).
- * Shape: `0.35 + 0.65 / (1 + v² · k)`  with k chosen for feel, not realism.
+ * Restitution falls smoothly with impact speed. Real viscoelastic/Hertzian
+ * contacts roll off as a gentle power law `e ∝ v^(-1/4)` (Hunt–Crossley /
+ * Tabor), NOT a quadratic cliff — doubling the speed costs only ~16 % of e, so
+ * even hard hits stay lively (a dropped steel ball keeps bouncing many times).
+ * The curve runs from 1 (gentle) toward the 0.35 floor (violent), monotone.
  */
 export function velRestScale(vMag) {
-  return 0.35 + 0.65 / (1 + vMag * vMag * 0.0000015);
+  return clamp(0.35 + 0.65 * Math.pow(REF_V / (vMag + REF_V), 0.25), 0.35, 1);
 }
 
 /**

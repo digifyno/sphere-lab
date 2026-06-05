@@ -21,7 +21,7 @@
 import { W, cam } from '../core/world.js';
 import { PHYS } from '../core/config.js';
 import { TAU, len } from '../core/math.js';
-import { mix, lighten, darken, withAlpha } from '../core/color.js';
+import { mix, lighten, darken, lightenL, darkenL, withAlpha } from '../core/color.js';
 import { light, sceneCanvas } from './canvas.js';
 
 /**
@@ -526,12 +526,19 @@ function drawRefraction(tx, b) {
   tx.save();
   tx.beginPath(); tx.arc(b.x, b.y, b.r * 0.96, 0, TAU); tx.clip();
 
+  // Lens magnitude stays pinned to the tuned `refract` amount (changing it
+  // would explode/break the glass look); only dispersion + Fresnel are grounded
+  // in the physical IOR `n`.
+  const ior = b.mat.ior;
   const base = 1 - b.mat.refract * 0.25;
-  // R/G/B at slightly different scales → chromatic aberration. Diamond
-  // has much stronger dispersion than glass (that's the literal "fire"),
-  // so its spread is nearly 3× wider — the rainbow fringe at the edges
-  // reads as a real prism, not just a refractive bubble.
-  const spread = b.mat.name === 'DIAMOND' ? 0.055 : 0.020;
+  // Chromatic dispersion ∝ (n−1): diamond (n=2.42) fringes ~2.8× wider than
+  // glass (n=1.5) — its literal "fire". Falls back to the old constants when a
+  // material has no IOR set.
+  const spread = ior ? clamp((ior - 1) * 0.039, 0, 0.07)
+                     : (b.mat.name === 'DIAMOND' ? 0.055 : 0.020);
+  // Normal-incidence Fresnel reflectance R0 = ((n−1)/(n+1))²: glass ≈0.04,
+  // diamond ≈0.17 (~4× brighter back-reflection — diamond's brilliance).
+  const r0 = ior ? ((ior - 1) / (ior + 1)) ** 2 : 0.04;
   const scales = [ base + spread, base, base - spread ];
 
   for (let i = 0; i < 3; i++) {
@@ -564,7 +571,7 @@ function drawRefraction(tx, b) {
   // reflection, returning as near-black. Canvas can't simulate this so
   // we paint the cue directly.
   const tirR0 = b.r * 0.86, tirR1 = b.r * 1.0;
-  const tirK = 0.32 * b.mat.refract;
+  const tirK = 0.32 * b.mat.refract * (ior ? (0.6 + r0 * 2.3) : 1);
   const tirG = tx.createRadialGradient(b.x, b.y, tirR0, b.x, b.y, tirR1);
   tirG.addColorStop(0,    'rgba(0,0,0,0)');
   tirG.addColorStop(0.55, `rgba(0,0,0,${tirK})`);
@@ -572,6 +579,18 @@ function drawRefraction(tx, b) {
   tirG.addColorStop(1,    'rgba(0,0,0,0)');
   tx.fillStyle = tirG;
   tx.beginPath(); tx.arc(b.x, b.y, b.r, 0, TAU); tx.fill();
+
+  // Fresnel back-reflection — a thin bright annulus at the silhouette whose
+  // strength tracks R0. Diamond (R0≈0.17) reflects ~4× harder than glass (0.04),
+  // its visible brilliance; glass's faint rim stays nearly invisible (faithful).
+  const fresA = clamp(r0 * 1.1, 0, 0.2);
+  if (fresA > 0.01) {
+    const frG = tx.createRadialGradient(b.x, b.y, b.r * 0.9, b.x, b.y, b.r);
+    frG.addColorStop(0, 'rgba(255,255,255,0)');
+    frG.addColorStop(1, `rgba(255,255,255,${fresA})`);
+    tx.fillStyle = frG;
+    tx.beginPath(); tx.arc(b.x, b.y, b.r, 0, TAU); tx.fill();
+  }
 
   // Focal caustic — light bent through the ball converges just inside
   // the far side (opposite the illuminator). A small bright pinpoint
@@ -600,21 +619,24 @@ function drawMotionStreak(tx, b) {
   if (!PHYS.streaks) return;
   const sp = len(b.vx, b.vy);
   if (sp < 260) return;
-  const steps = Math.min(6, Math.floor(sp / 120));
-  const baseColor = b.effectiveColor();
-  for (let i = steps; i >= 1; i--) {
-    const t = i / steps;
-    const px = b.x - b.vx * 0.012 * i;
-    const py = b.y - b.vy * 0.012 * i;
-    const rr = b.r * (1 - t * 0.15);
-    tx.globalAlpha = 0.25 * (1 - t);
-    const grad = tx.createRadialGradient(px, py, 0, px, py, rr);
-    grad.addColorStop(0, lighten(baseColor, 0.3));
-    grad.addColorStop(1, withAlpha(baseColor, 0));
-    tx.fillStyle = grad;
-    tx.beginPath(); tx.arc(px, py, rr, 0, TAU); tx.fill();
-  }
-  tx.globalAlpha = 1;
+  // Motion blur = the path swept while the shutter is open: a continuous smear
+  // whose length scales with |v|, brightest at the leading (current) position
+  // and fading toward the trailing edge. Length is matched to the old 6-disc
+  // tail extent (~0.072 s of travel) so the look is unchanged, then capped so a
+  // hypervelocity ball doesn't paint a screen-spanning bar.
+  const L = Math.min(sp * 0.072, b.r * 8);
+  const ux = b.vx / sp, uy = b.vy / sp;
+  const tailX = b.x - ux * L, tailY = b.y - uy * L;
+  const c = b.effectiveColor();
+  const grad = tx.createLinearGradient(tailX, tailY, b.x, b.y);
+  grad.addColorStop(0, withAlpha(c, 0));                   // trailing edge: transparent
+  grad.addColorStop(1, withAlpha(lighten(c, 0.3), 0.3));   // leading edge: brightest
+  tx.save();
+  tx.strokeStyle = grad;
+  tx.lineWidth = b.r * 1.8;                                // capsule ≈ ball diameter wide
+  tx.lineCap = 'round';
+  tx.beginPath(); tx.moveTo(tailX, tailY); tx.lineTo(b.x, b.y); tx.stroke();
+  tx.restore();
 }
 
 /**
@@ -641,9 +663,19 @@ function drawFresnelRim(tx, b) {
   }
   const g = tx.createRadialGradient(b.x, b.y, inner, b.x, b.y, outer);
   const baseAlpha = metal ? 0.55 : isBowling ? 0.14 : 0.28;
-  g.addColorStop(0,    'rgba(255,255,255,0)');
-  g.addColorStop(0.75, withAlpha('#ffffff', baseAlpha * 0.15));
-  g.addColorStop(1,    withAlpha('#ffffff', baseAlpha));
+  // Schlick's Fresnel: R(θ)=R0+(1-R0)(1-cosθ)^5, with cosθ=√(1-ρ²) for a 2D
+  // sphere (ρ = screen radius). Reflectance rises sharply toward the silhouette;
+  // dielectrics (R0≈0.04) reflect the white environment, metals (R0≈0.5) keep
+  // their own tint at grazing — gold/steel get a warm rim, not a white one.
+  const R0 = metal ? 0.5 : 0.04;
+  const rimCol = metal ? lighten(b.mat.color, 0.4) : '#ffffff';
+  const INNER_RHO = 0.70;                       // gradient covers ρ ∈ [0.70, 1.0]
+  for (const s of [0, 0.25, 0.5, 0.75, 1]) {
+    const rho = INNER_RHO + (1 - INNER_RHO) * s;
+    const cosT = Math.sqrt(Math.max(0, 1 - rho * rho));
+    const fres = R0 + (1 - R0) * Math.pow(1 - cosT, 5);
+    g.addColorStop(s, withAlpha(rimCol, baseAlpha * fres));
+  }
   tx.fillStyle = g;
   tx.beginPath(); tx.arc(b.x, b.y, b.r, 0, TAU); tx.fill();
 }
@@ -730,27 +762,27 @@ export function drawBall(tx, b) {
     } else if (mat.metallic > 0.7) {
       // near-mirror: sharp hot core + deep dark fringe
       g.addColorStop(0,    '#ffffff');
-      g.addColorStop(0.28, lighten(bodyColor, 0.5));
+      g.addColorStop(0.28, lightenL(bodyColor, 0.5));
       g.addColorStop(0.6,  bodyColor);
-      g.addColorStop(0.88, darken(bodyColor, 0.55));
-      g.addColorStop(1,    darken(bodyColor, 0.78));
+      g.addColorStop(0.88, darkenL(bodyColor, 0.55));
+      g.addColorStop(1,    darkenL(bodyColor, 0.78));
     } else if (mat.metallic > 0.3) {
-      g.addColorStop(0,   lighten(bodyColor, 0.65));
+      g.addColorStop(0,   lightenL(bodyColor, 0.65));
       g.addColorStop(0.5, bodyColor);
-      g.addColorStop(1,   darken(bodyColor, 0.55));
+      g.addColorStop(1,   darkenL(bodyColor, 0.55));
     } else if (mat.name === 'RUBBER' || mat.name === 'BOWLING') {
       // Matte elastomer / polymer. Real rubber/polyurethane is nearly pure
       // Lambertian — only a faint lightening near the illuminated point,
       // then a long gentle roll-off to a dark occluded rim. No brightness
       // anywhere near as high as a polished surface.
-      g.addColorStop(0,    lighten(bodyColor, 0.18));
+      g.addColorStop(0,    lightenL(bodyColor, 0.18));
       g.addColorStop(0.35, bodyColor);
-      g.addColorStop(0.78, darken(bodyColor, 0.40));
-      g.addColorStop(1,    darken(bodyColor, 0.78));
+      g.addColorStop(0.78, darkenL(bodyColor, 0.40));
+      g.addColorStop(1,    darkenL(bodyColor, 0.78));
     } else {
-      g.addColorStop(0,   lighten(bodyColor, 0.55));
+      g.addColorStop(0,   lightenL(bodyColor, 0.55));
       g.addColorStop(0.6, bodyColor);
-      g.addColorStop(1,   darken(bodyColor, 0.45));
+      g.addColorStop(1,   darkenL(bodyColor, 0.45));
     }
     tx.fillStyle = g;
     tx.beginPath(); tx.arc(x, y, r, 0, TAU); tx.fill();
@@ -943,7 +975,7 @@ export function drawBall(tx, b) {
   for (const a of [0, Math.PI]) {
     const mx = x + Math.cos(mAng + a) * r * 0.62;
     const my = y + Math.sin(mAng + a) * r * 0.62;
-    tx.fillStyle = darken(bodyColor, 0.6);
+    tx.fillStyle = darkenL(bodyColor, 0.6);
     tx.beginPath(); tx.arc(mx, my, r * 0.13, 0, TAU); tx.fill();
   }
 
@@ -995,7 +1027,7 @@ export function drawBall(tx, b) {
   tx.restore();
 
   // outline
-  tx.strokeStyle = darken(bodyColor, 0.75);
+  tx.strokeStyle = darkenL(bodyColor, 0.75);
   tx.lineWidth = 0.8;
   tx.beginPath(); tx.arc(x, y, r, 0, TAU); tx.stroke();
 

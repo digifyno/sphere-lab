@@ -321,9 +321,15 @@ export function physicsStep(dt) {
       b.omega *= Math.max(0, 1 - PHYS.drag * areaScale * dt * 0.8);
     }
 
-    // Magnus: F⊥ = k · ω · v · A. Velocity snapshot to avoid self-contamination.
+    // Magnus: F⊥ = k·ω·v·A at low spin, but the lift coefficient saturates with
+    // the spin parameter S = ω·r/|v| (Kutta–Joukowski + empirical Cl(S)≈tanh).
+    // The (S0/S)·tanh(S/S0) factor → 1 as S→0 (keeps the tuned curveball feel)
+    // and rolls off at high spin, so a fast small spinner no longer gets an
+    // unbounded sideways force. Velocity snapshot avoids self-contamination.
     if (vmag > 10 && Math.abs(b.omega) > 0.1) {
-      const magK = PHYS.magnus * 0.002 * areaScale;
+      const S = Math.abs(b.omega) * b.r / vmag;
+      const sat = 0.4 * Math.tanh(S / 0.4) / S;
+      const magK = PHYS.magnus * 0.002 * areaScale * sat;
       const mvx = -b.vy * b.omega * magK * dt;
       const mvy =  b.vx * b.omega * magK * dt;
       b.vx += mvx;

@@ -10,6 +10,7 @@ import { TAU, clamp } from '../core/math.js';
 import { mix } from '../core/color.js';
 import { balls } from '../entities/ball.js';
 import { isBallOnScreen } from './ball.js';
+import { light } from './canvas.js';
 
 export function drawWalls(tx) {
   tx.shadowColor = '#8fd0ff'; tx.shadowBlur = 4;
@@ -252,8 +253,10 @@ export function drawSolarCenter(tx) {
 export function drawBallShadows(tx) {
   if (!PHYS.shadow || !PHYS.gravityOn) return;
   const floorY = W.ch - 40;
+  // Same key light the ball shader uses (upper-left), so shadows agree with
+  // the highlights instead of sitting straight below every ball.
+  const lx = light.x * W.cw, ly = light.y * W.ch;
   tx.save();
-  tx.filter = 'blur(3px)';
   for (const b of balls) {
     const dist = floorY - (b.y + b.r);
     if (dist < 0 || dist > 300) continue;
@@ -262,20 +265,35 @@ export function drawBallShadows(tx) {
     if (!isBallOnScreen(b)) continue;
     // distance-based: the higher the ball, the wider + fainter the shadow
     const t = dist / 300;
+    // Contact hardening: the penumbra collapses as the ball nears the floor —
+    // a sharp dark contact patch at d→0, soft + wide when it is high up.
+    tx.filter = `blur(${(1 + t * 5).toFixed(1)}px)`;
     const spread = 1 + t * 1.6;
     const alpha = 0.42 * (1 - t);
+    // Planar shadow projection along the light ray (similar triangles): a ball
+    // lit from the upper-left casts to the lower-right, the offset + skew
+    // growing with height. Lean is a gentle horizontal tilt so the ellipse
+    // stays flat on the floor (not the full vertical-dominated azimuth).
+    const bias = clamp((b.x - lx) / (floorY - ly), -1.2, 1.2);
+    const sx = b.x + bias * dist * 0.5;
+    const stretch = 1 + 0.4 * Math.abs(bias);
+    const rot = bias * 0.5;
+    // firm dark contact 'kiss' only when very close to the floor (capped so it
+    // never reads as a hard black blob — keeps the soft stylized look)
+    const contact = clamp((0.15 - t) * 3, 0, 1);
+    const umbraA = Math.min(0.55, alpha * 0.7 * (1 + contact * 0.6));
     // 3-layer shadow: umbra → mid → penumbra
-    tx.fillStyle = `rgba(0,0,0,${alpha * 0.7})`;
+    tx.fillStyle = `rgba(0,0,0,${umbraA})`;
     tx.beginPath();
-    tx.ellipse(b.x, floorY, b.r * spread * 0.8, b.r * 0.24 * spread, 0, 0, TAU);
+    tx.ellipse(sx, floorY, b.r * spread * (0.8 - contact * 0.2) * stretch, b.r * 0.24 * spread, rot, 0, TAU);
     tx.fill();
     tx.fillStyle = `rgba(0,0,0,${alpha * 0.4})`;
     tx.beginPath();
-    tx.ellipse(b.x, floorY, b.r * spread * 1.15, b.r * 0.32 * spread, 0, 0, TAU);
+    tx.ellipse(sx, floorY, b.r * spread * 1.15 * stretch, b.r * 0.32 * spread, rot, 0, TAU);
     tx.fill();
     tx.fillStyle = `rgba(0,0,0,${alpha * 0.18})`;
     tx.beginPath();
-    tx.ellipse(b.x, floorY, b.r * spread * 1.7, b.r * 0.45 * spread, 0, 0, TAU);
+    tx.ellipse(sx, floorY, b.r * spread * 1.7 * stretch, b.r * 0.45 * spread, rot, 0, TAU);
     tx.fill();
   }
   tx.restore();

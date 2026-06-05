@@ -557,6 +557,56 @@ export const Snd = {
     src.start(t);
   },
 
+  /** Felt low-frequency body pulse for a heavy impact — a kick-style sine with
+   *  a fast pitch drop (~1.4×→1× over 30 ms). Routed to master only; rooms
+   *  barely reverberate sub-bass, so no wet send. Gated by `_maybeSubThud`. */
+  subThud(freq, gain, dur, pan = 0) {
+    if (!this.ctx || !PHYS.sound || PHYS.volume <= 0) return;
+    if (!this._canSpawn()) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(freq * 1.4, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(40, freq), t + 0.030);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(gain, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g);
+    if (this.ctx.createStereoPanner) {
+      const p = this.ctx.createStereoPanner();
+      p.pan.value = clamp(pan, -0.85, 0.85);
+      g.connect(p); p.connect(this.master);
+    } else {
+      g.connect(this.master);
+    }
+    o.onended = () => this._release();
+    this._claim();
+    o.start(t); o.stop(t + dur);
+  },
+
+  /** Fire a sub-thud only for genuinely weighty, fast impacts (gold/mercury/
+   *  steel slams, big rock/bowling), so light taps stay clean. Momentum-gated
+   *  + per-ball cooldown so a settling heavy pile doesn't drone. Guards ctx
+   *  FIRST so it is a safe no-op under the head-less test harness. */
+  _maybeSubThud(ball, vn) {
+    if (!this.ctx || !PHYS.sound || PHYS.volume <= 0) return;
+    if (vn < 70) return;
+    const m = ball.mass, r = ball.r || 20;
+    const p = m * vn;                       // momentum proxy
+    if (p < 300) return;                    // conservative — only heavy/fast hits
+    const t = this.ctx.currentTime;
+    if (ball._subT !== undefined && t - ball._subT < 0.08) return;
+    ball._subT = t;
+    const gain = clamp((p - 300) * 0.0004, 0, 0.22);
+    if (gain < 0.02) return;
+    // Heavier / larger bodies move more air at a lower frequency.
+    const freq = clamp(95 - m * 2.5 - (r - 20) * 0.5, 45, 90);
+    const cw = W.cw || window.innerWidth || 1000;
+    const pan = clamp(((ball.x ?? cw / 2) / cw) * 2 - 1, -0.85, 0.85);
+    this.subThud(freq, gain, 0.14, pan);
+  },
+
   /** Internal — sub-millisecond broadband click, the primary contact pop.
    *  No filter, hard edges — reads as an impulse, not a tone. Used as the
    *  first stage of a two-stage attack for hard materials. */
@@ -641,8 +691,11 @@ export const Snd = {
    * @param {{mat: any, x?: number, r?: number}} ball
    * @param {number} strength          0..1 overall loudness
    * @param {number} otherSoftness     0..1 other participant's `deform`
+   * @param {number} brightness        0.2..1 Hertzian contact-time brightness
+   *                                   (1 = short/stiff/light → bright tick,
+   *                                    low = long/soft/heavy → dull thunk)
    */
-  emitMaterialSound(ball, strength, otherSoftness = 0.15) {
+  emitMaterialSound(ball, strength, otherSoftness = 0.15, brightness = 1) {
     if (!this.ctx || !PHYS.sound || PHYS.volume <= 0) return;
     const mat = ball.mat;
     const profile = MODAL[mat.name] || FALLBACK;
@@ -694,10 +747,13 @@ export const Snd = {
         pan
       );
     }
+    // Hertzian contact time also tilts the onset: a long (dull) contact
+    // low-passes the click, a short (bright) one keeps it sharp.
     const atk = profile.attack;
-    const effAtk = atk.velHpScale
-      ? { ...atk, freq: atk.freq * (1 + strength * atk.velHpScale) }
-      : atk;
+    const effAtk = {
+      ...atk,
+      freq: atk.freq * (1 + strength * (atk.velHpScale || 0)) * (0.4 + 0.6 * brightness)
+    };
     this._attack(effAtk, attackAmp, pan);
 
     // Modes — pitch + brightness depend on size + velocity
@@ -732,14 +788,16 @@ export const Snd = {
       // steeper curve. Higher modes still need real energy to ring, but
       // they whisper at every strength instead of vanishing abruptly.
       const excitation = Math.pow(strength, i * 0.35);
-      const peak = m.amp * modeScale * excitation * 0.85 * ampJitter;
-      // Lowered cull threshold (0.001 → 0.0003) so quiet modes fade to
-      // inaudibility continuously instead of snapping off at a threshold.
-      if (peak < 0.0003) continue;
-
       const freq = profile.baseFreq * m.ratio * sizeScale;
       // Guard against silly-high frequencies on very small balls
       if (freq > 18000 || freq < 30) continue;
+      let peak = m.amp * modeScale * excitation * 0.85 * ampJitter;
+      // Long-contact (dull/heavy/soft) hits shed their high ring — the
+      // Hertzian contact-time brightness carried in from the impact.
+      if (freq > 1500) peak *= brightness;
+      // Lowered cull threshold (0.001 → 0.0003) so quiet modes fade to
+      // inaudibility continuously instead of snapping off at a threshold.
+      if (peak < 0.0003) continue;
 
       // Voice budget — if the graph is saturated, drop the mode rather
       // than pile on. The fundamental mode (i=0) is the most important
@@ -794,7 +852,7 @@ export const Snd = {
    * pushes toward 0.95. Now the dynamic-envelope changes in
    * emitMaterialSound actually get to express themselves.
    */
-  collision(a, b, magnitude, vn = Infinity) {
+  collision(a, b, magnitude, vn = Infinity, brightness = 1) {
     if (vn < MIN_AUDIBLE_VN_BALL) return;
     // Max(0, ...) defends against any future caller passing a negative
     // magnitude — Math.sqrt(-n) is NaN which then propagates through
@@ -802,8 +860,9 @@ export const Snd = {
     const strength = clamp(Math.sqrt(Math.max(0, magnitude)) * 0.030, 0.03, 0.98);
     const softA = a.mat.deform ?? 0.2;
     const softB = b.mat.deform ?? 0.2;
-    this.emitMaterialSound(a, strength, softB);
-    this.emitMaterialSound(b, strength, softA);
+    this.emitMaterialSound(a, strength, softB, brightness);
+    this.emitMaterialSound(b, strength, softA, brightness);
+    this._maybeSubThud(a.mass >= b.mass ? a : b, vn);   // heavier body drives the felt thud
   },
 
   /** Ball-on-wall / ball-on-peg — walls count as hard infrastructure.
@@ -812,6 +871,7 @@ export const Snd = {
     if (vn < MIN_AUDIBLE_VN_WALL) return;
     const strength = clamp(Math.sqrt(Math.max(0, magnitude)) * 0.025, 0.03, 0.92);
     this.emitMaterialSound(ball, strength, 0.15);
+    this._maybeSubThud(ball, vn);
   },
 
   /** Fragile material shatter — play at full strength + add bright shards. */
@@ -925,10 +985,11 @@ export const Snd = {
    *  frequency and stereo pan from them. */
   addRoll(matName, intensity, radius, x) {
     let m = this._rollMix[matName];
-    if (!m) { m = { total: 0, rSum: 0, xSum: 0 }; this._rollMix[matName] = m; }
+    if (!m) { m = { total: 0, rSum: 0, xSum: 0, vSum: 0 }; this._rollMix[matName] = m; }
     m.total += intensity;
     m.rSum  += intensity * radius;
     m.xSum  += intensity * x;
+    m.vSum  += intensity * intensity;   // energy-biased mean speed (Σv²/Σv)
   },
 
   /** After all balls have contributed, apply mix to voice gains with
@@ -950,7 +1011,12 @@ export const Snd = {
       // Filter frequency shift with size — smaller balls whine higher
       // (scale chosen to match the modal-impact sizeExp roughly).
       const freqScale = Math.pow(20 / Math.max(4, avgR), 0.75);
-      const targetFreq = voice.profile.freq * freqScale;
+      // Surface-excitation pitch: faster rolling sweeps asperities past the
+      // contact faster, lifting the scrape spectrum (tyres/skateboards pitch
+      // up with speed). Size sets the resonant floor; speed rides on top.
+      const avgSpeed = m.vSum / m.total;
+      const speedScale = clamp(0.6 + avgSpeed / 600, 0.6, 2.2);
+      const targetFreq = voice.profile.freq * freqScale * speedScale;
       voice.filter.frequency.setTargetAtTime(targetFreq, t, 0.05);
       // Stereo pan weighted by intensity-weighted x of contributors.
       const panVal = clamp((avgX / cw) * 2 - 1, -0.85, 0.85);
