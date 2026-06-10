@@ -123,18 +123,26 @@ function frame(now) {
   drawVortex(ctx);
   drawBallShadows(ctx);
 
-  if (PHYS.refract && balls.some(b => (b.mat.refract || 0) > 0.3)) {
+  // Refractive balls (glass/ice/diamond) use a snapshot of the scene as their
+  // lens texture. Draw the OPAQUE balls first, snapshot, then draw the
+  // refractive ones last — so glass bends the actual balls behind it, not just
+  // the wall/grid background (the single biggest "it's faking it" tell).
+  const anyRefract = PHYS.refract && balls.some(b => (b.mat.refract || 0) > 0.3);
+
+  if (PHYS.trails) for (const b of balls) drawTrail(ctx, b);
+  drawAO(ctx);
+  for (const b of balls) if (!anyRefract || (b.mat.refract || 0) <= 0.3) drawBall(ctx, b);
+
+  if (anyRefract) {
     ctx.restore();
     sceneCtx.setTransform(1, 0, 0, 1, 0, 0);
     sceneCtx.drawImage(canvas, 0, 0, W.cw * dpr, W.ch * dpr, 0, 0, W.cw, W.ch);
     ctx.save();
     ctx.translate(W.cw / 2 - cam.x * cam.zoom, W.ch / 2 - cam.y * cam.zoom);
     ctx.scale(cam.zoom, cam.zoom);
+    for (const b of balls) if ((b.mat.refract || 0) > 0.3) drawBall(ctx, b);
   }
 
-  if (PHYS.trails) for (const b of balls) drawTrail(ctx, b);
-  drawAO(ctx);
-  for (const b of balls) drawBall(ctx, b);
   drawPlasmaArcs(ctx);
   drawWater(ctx);
   drawParticles(ctx);

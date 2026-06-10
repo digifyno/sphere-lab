@@ -7,7 +7,7 @@
 import { W } from '../core/world.js';
 import { PHYS } from '../core/config.js';
 import { TAU, clamp } from '../core/math.js';
-import { mix } from '../core/color.js';
+import { mix, withAlpha } from '../core/color.js';
 import { balls } from '../entities/ball.js';
 import { isBallOnScreen } from './ball.js';
 import { light } from './canvas.js';
@@ -282,16 +282,21 @@ export function drawBallShadows(tx) {
     // never reads as a hard black blob — keeps the soft stylized look)
     const contact = clamp((0.15 - t) * 3, 0, 1);
     const umbraA = Math.min(0.55, alpha * 0.7 * (1 + contact * 0.6));
+    // Tinted shadows: translucent glass filters the skylight to its own hue, so
+    // its shadow isn't pure black; an emissive/hot ball under-lights the floor
+    // rather than darkening it, so its shadow is much fainter.
+    const tint = b.mat.refract > 0.3 ? mix('#000000', b.mat.color, 0.45) : '#000000';
+    const shScale = (b.mat.glow > 0.5 || b.heat > 0.4) ? 0.3 : 1;
     // 3-layer shadow: umbra → mid → penumbra
-    tx.fillStyle = `rgba(0,0,0,${umbraA})`;
+    tx.fillStyle = withAlpha(tint, umbraA * shScale);
     tx.beginPath();
     tx.ellipse(sx, floorY, b.r * spread * (0.8 - contact * 0.2) * stretch, b.r * 0.24 * spread, rot, 0, TAU);
     tx.fill();
-    tx.fillStyle = `rgba(0,0,0,${alpha * 0.4})`;
+    tx.fillStyle = withAlpha(tint, alpha * 0.4 * shScale);
     tx.beginPath();
     tx.ellipse(sx, floorY, b.r * spread * 1.15 * stretch, b.r * 0.32 * spread, rot, 0, TAU);
     tx.fill();
-    tx.fillStyle = `rgba(0,0,0,${alpha * 0.18})`;
+    tx.fillStyle = withAlpha(tint, alpha * 0.18 * shScale);
     tx.beginPath();
     tx.ellipse(sx, floorY, b.r * spread * 1.7 * stretch, b.r * 0.45 * spread, rot, 0, TAU);
     tx.fill();

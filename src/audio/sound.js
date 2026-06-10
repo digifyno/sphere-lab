@@ -772,13 +772,20 @@ export const Snd = {
     // a slam, and a cannon-shot should all feel like distinct points
     // on one gradient rather than three discrete presets.
     const decayScale   = 0.20 + 0.80 * strength;
-    const reverbGain   = reverbSend * 0.6 * (0.15 + 0.85 * strength);
+    // Reverb send rises with strength AND distance: a far source has a lower
+    // direct-to-reverberant ratio (more of what you hear is the room), which
+    // reinforces the distance attenuation already on the dry path.
+    const reverbGain   = reverbSend * 0.6 * (0.15 + 0.85 * strength) * (1 + (1 - sp.distGain) * 1.2);
     // Per-hit micro-variation. Repeated hits at near-identical intensities
     // otherwise sound identical, collapsing fine-grained differences in
     // the listener's perception. ±6 % amplitude + ±8 % decay jitter gives
     // the mix natural texture without changing the fundamental character.
     const ampJitter   = 1 + (Math.random() - 0.5) * 0.12;
     const decayJitter = 1 + (Math.random() - 0.5) * 0.16;
+    // Strike-position variation: a real repeated strike excites a location-
+    // dependent subset of modes (hit near a node and that overtone stays quiet),
+    // so a cascade / cradle doesn't ring as an identical bell on every hit.
+    const strikePhase = Math.random();
 
     for (let i = 0; i < profile.modes.length; i++) {
       const m = profile.modes[i];
@@ -795,6 +802,9 @@ export const Snd = {
       // Long-contact (dull/heavy/soft) hits shed their high ring — the
       // Hertzian contact-time brightness carried in from the impact.
       if (freq > 1500) peak *= brightness;
+      // Strike-position node pattern: keep the fundamental, but vary which
+      // overtones each hit emphasizes (see strikePhase above).
+      if (i > 0) peak *= 0.55 + 0.45 * Math.abs(Math.cos((i + 1) * strikePhase * Math.PI));
       // Lowered cull threshold (0.001 → 0.0003) so quiet modes fade to
       // inaudibility continuously instead of snapping off at a threshold.
       if (peak < 0.0003) continue;
