@@ -453,8 +453,13 @@ export function collideWall(b, wall) {
   const vn = b.vx * nx + b.vy * ny;
   if (vn >= 0) return;
 
-  const baseE = b.mat.restitution * (wall.bouncy ? 1.4 : 1);
-  const e = baseE * PHYS.restitutionMul * matVelRestScale(Math.abs(vn), b.mat) * heatRestMod(b);
+  // Passive restitution is capped at 1, mirroring the ball-ball solver: a
+  // passive bounce can't separate faster than it approached (a Bounce slider
+  // above 1 + a high-e material would otherwise pump energy on every wall
+  // hit). The bouncy wall's ×1.4 is an ACTIVE source and rides on top.
+  const e0 = Math.min(1, b.mat.restitution * PHYS.restitutionMul
+           * matVelRestScale(Math.abs(vn), b.mat) * heatRestMod(b));
+  const e = e0 * (wall.bouncy ? 1.4 : 1);
   const tx = -ny, ty = nx;
   const vt = b.vx * tx + b.vy * ty;
   // Tangential surface velocity at the contact point from angular motion.
@@ -485,7 +490,7 @@ export function collideWall(b, wall) {
   // only ever redirect tangential energy into spin — never inject any.
   let et = b.mat.tanRest ?? 0; et = et > 1 ? 1 : et < 0 ? 0 : et;
   const relTtarget = (et > 0 && Math.abs(vn) >= 10) ? -et * relT : 0;
-  let jt = -(relT - relTtarget) * b.mass * (1 + baseE * 0.08) / denom;
+  let jt = -(relT - relTtarget) * b.mass / denom;
   const maxJt = Math.abs(vn) * mu * b.mass;
   if (jt > maxJt) jt = maxJt; else if (jt < -maxJt) jt = -maxJt;
   b.vx += jt * tx / b.mass; b.vy += jt * ty / b.mass;
@@ -564,8 +569,10 @@ export function collidePeg(b, peg) {
   const vn = b.vx * nx + b.vy * ny;
   if (vn >= 0) return;
 
-  const e = b.mat.restitution * PHYS.restitutionMul * (peg.bumper ? 1.8 : 1)
-          * matVelRestScale(Math.abs(vn), b.mat) * heatRestMod(b);
+  // Same passive cap as walls; the bumper's ×1.8 kick is an active source.
+  const e = Math.min(1, b.mat.restitution * PHYS.restitutionMul
+          * matVelRestScale(Math.abs(vn), b.mat) * heatRestMod(b))
+          * (peg.bumper ? 1.8 : 1);
   b.vx -= vn * nx * (1 + e);
   b.vy -= vn * ny * (1 + e);
 

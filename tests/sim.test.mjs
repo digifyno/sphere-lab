@@ -1427,6 +1427,37 @@ function testTangentialRestitution() {
      `BF: steel-on-steel stays inside the slip-kill bound (|vy| ${st.vyAbs.toFixed(0)} ≤ 230)`);
 }
 
+// ───────────── BG: plain walls never amplify a bounce ──────────────────────
+function testWallRestitutionCapped() {
+  console.log('BG. a plain wall never returns a ball faster than it arrived — even at Bounce 1.2');
+  // glass (e=0.93) at the Bounce slider's max (1.2): the raw product exceeds 1
+  // at gentle speeds, which used to pump energy on every wall hit while the
+  // ball-ball solver was already capped.
+  reset({ gravity: false, drag: 0 });
+  PHYS.restitutionMul = 1.2;
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const g = new Ball(pad + 80, 400, 16, MATERIALS.glass);
+  g.vx = -70;                                  // gentle — velRestScale stays near 1
+  balls.push(g);
+  run(240 * 2);                                // several wall reflections
+  ok(noNaN(), 'BG: no NaN');
+  const spd = Math.hypot(g.vx, g.vy);
+  ok(spd <= 70 + 1e-6,
+     `BG: passive wall bounce never gained speed (|v| ${spd.toFixed(2)} ≤ 70)`);
+
+  // The bouncy wall stays an ACTIVE energy source — it must still amplify.
+  reset({ gravity: false, drag: 0 });
+  PHYS.restitutionMul = 1.0;
+  W.walls.push({ x1: 100, y1: 100, x2: 100, y2: 700, bouncy: true });
+  const r = new Ball(220, 400, 16, MATERIALS.rubber);
+  r.vx = -300;
+  balls.push(r);
+  run(120);
+  ok(r.vx > 300,
+     `BG: a bouncy wall still kicks (out ${r.vx.toFixed(0)} > in 300)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1486,5 +1517,6 @@ testMagnusScaling();
 testDragBySize();
 testMagnetSizeScaling();
 testTangentialRestitution();
+testWallRestitutionCapped();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }
