@@ -26,7 +26,7 @@ const SUBS = {
   jelly:     'Soft-body blobs · ring + spokes',
   water:     'Archimedes buoyancy · live ripples',
   magnets:   'Mutual 1/r² attraction',
-  avalanche: 'Tilted slope · tower of ball',
+  avalanche: 'Tilted slope · tower of balls',
   conveyor:  'Belts drag tangentially',
   chaos:     'Double pendulum · sensitive',
   orbits:    'Newtonian N-body · √(GM/R) orbits',

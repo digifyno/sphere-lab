@@ -147,7 +147,7 @@ export const balls = [];
 export const selectedMat = { id: /** @type {import('./materials.js').MaterialId} */ ('rubber') };
 
 export function spawnBall(x, y) {
-  if (balls.length > 260) return null;
+  if (balls.length >= 260) return null;
   const mat = MATERIALS[selectedMat.id];
   const b = new Ball(x, y, PHYS.spawnRadius, mat);
   b.vx = rand(-30, 30); b.vy = rand(-30, 30);

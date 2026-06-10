@@ -25,7 +25,7 @@
  * @property {boolean} bloom       @property {boolean} shadow     @property {boolean} sound
  * @property {boolean} refract     @property {boolean} heatFx     @property {boolean} ao
  * @property {boolean} aberration  @property {boolean} grain      @property {boolean} streaks
- * @property {boolean} flare
+ * @property {boolean} flare       @property {boolean} fire
  * Audio:
  * @property {number} volume   — 0..1 master gain
  */

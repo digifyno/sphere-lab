@@ -13,6 +13,7 @@ import { isBallOnScreen } from './ball.js';
 import { light } from './canvas.js';
 
 export function drawWalls(tx) {
+  tx.save();
   tx.shadowColor = '#8fd0ff'; tx.shadowBlur = 4;
   tx.lineWidth = 3; tx.lineCap = 'round';
   for (const w of W.walls) {
@@ -56,6 +57,7 @@ export function drawWalls(tx) {
       tx.stroke();
     }
   }
+  tx.restore();
 }
 
 export function drawFlippers(tx) {

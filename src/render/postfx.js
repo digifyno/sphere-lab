@@ -10,7 +10,7 @@
  * Call order from the loop: bloom → postfx.
  */
 
-import { W } from '../core/world.js';
+import { W, cam } from '../core/world.js';
 import { PHYS } from '../core/config.js';
 import { TAU, clamp, len } from '../core/math.js';
 import { mix, withAlpha } from '../core/color.js';
@@ -92,10 +92,21 @@ export function doBloomPass() {
   }
 
   // --- 1. bright pass ---
-  bloomCtx.setTransform(0.5, 0, 0, 0.5, 0, 0);
+  // Clear in device space, then draw the glow sources through the SAME camera
+  // transform the scene uses (loop.js: translate(W.cw/2 - cam.x·z, …)·scale(z)),
+  // pre-multiplied by the 0.5 half-res factor. Without the camera the glow stays
+  // pinned to default-view coordinates and detaches from its emitters the moment
+  // the view is panned or zoomed (e.g. the Orbits scene, which loads at z=0.82).
+  // At the default camera (cam = centre, z = 1) this reduces to the old
+  // setTransform(0.5,…), so default scenes are pixel-identical.
+  bloomCtx.setTransform(1, 0, 0, 1, 0, 0);
   bloomCtx.fillStyle = '#000';
-  bloomCtx.fillRect(0, 0, W.cw, W.ch);
+  bloomCtx.fillRect(0, 0, bloomCanvas.width, bloomCanvas.height);
   bloomCtx.globalCompositeOperation = 'source-over';
+  const bz = 0.5 * cam.zoom;
+  bloomCtx.setTransform(bz, 0, 0, bz,
+    0.5 * (W.cw / 2 - cam.x * cam.zoom),
+    0.5 * (W.ch / 2 - cam.y * cam.zoom));
 
   const THRESHOLD = 0.15;
   for (const b of balls) {

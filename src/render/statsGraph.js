@@ -9,6 +9,8 @@
  *   otherwise it auto-fits to the data.
  */
 
+import { withAlpha } from '../core/color.js';
+
 /**
  * @param {HTMLCanvasElement} canvas
  * @param {number[]} data
@@ -54,8 +56,8 @@ export function renderSparkline(canvas, data, opts = {}) {
 
   // fill area under the line
   const grad = ctx.createLinearGradient(0, 0, 0, cssH);
-  grad.addColorStop(0, color + '55');
-  grad.addColorStop(1, color + '00');
+  grad.addColorStop(0, withAlpha(color, 0.33));
+  grad.addColorStop(1, withAlpha(color, 0));
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.moveTo(0, cssH);
