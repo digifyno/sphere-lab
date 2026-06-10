@@ -494,13 +494,71 @@ function testSoftAreaPreserved() {
   ok(minA > sb.restArea * 0.4, `V: never collapsed (minArea ${minA.toFixed(0)} > ${(sb.restArea * 0.4).toFixed(0)})`);
   ok(maxA < sb.restArea * 1.8, `V: never ballooned (maxArea ${maxA.toFixed(0)} < ${(sb.restArea * 1.8).toFixed(0)})`);
 }
+function blobCentroid(sb) {
+  let cx = 0, cy = 0;
+  for (const b of sb.nodes) { cx += b.x; cy += b.y; }
+  return { x: cx / sb.nodes.length, y: cy / sb.nodes.length };
+}
+
+function testSoftBudget() {
+  console.log('Y. a soft blob is cheap — at most 12 balls per blob');
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const before = balls.length;
+  const sb = buildSoftBall(W.cw / 2, W.ch / 2, 46, MATERIALS.jelly);
+  ok(sb !== null, 'Y: blob built');
+  const used = balls.length - before;
+  ok(used <= 12, `Y: blob uses ${used} balls (≤ 12 of the 260 cap)`);
+}
+
+function testSoftHardSquash() {
+  console.log('W. a slammed blob deforms heavily and still recovers (large deformation)');
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const sb = buildSoftBall(W.cw / 2, W.ch - pad - 160, 40, MATERIALS.jelly);
+  for (const n of sb.nodes) n.vy = 900;          // cannon it into the floor
+  let peak = 0;
+  for (let i = 0; i < 240 * 3; i++) {
+    physicsStep(DT);
+    const bb = blobBBox(sb);
+    peak = Math.max(peak, bb.w / Math.max(1, bb.h));
+  }
+  const e = blobBBox(sb); const endAspect = e.w / Math.max(1, e.h);
+  const a = Math.abs(polyArea(sb.nodes));
+  ok(noNaN(), 'W: no NaN');
+  ok(peak > 1.5, `W: heavy squash happened (peak aspect ${peak.toFixed(2)} > 1.5)`);
+  ok(endAspect < 1.45, `W: recovered from the slam (end aspect ${endAspect.toFixed(2)} < 1.45)`);
+  ok(a > sb.restArea * 0.6 && a < sb.restArea * 1.4,
+     `W: area survived the slam (${(a / sb.restArea).toFixed(2)}× rest in [0.6, 1.4])`);
+}
+
+function testSoftStack() {
+  console.log('Z. two stacked blobs settle without jitter and stay distinct');
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const lo = buildSoftBall(W.cw / 2, W.ch - pad - 60, 44, MATERIALS.jelly);
+  const hi = buildSoftBall(W.cw / 2, W.ch - pad - 200, 44, MATERIALS.jelly);
+  run(240 * 6);
+  ok(noNaN(), 'Z: no NaN');
+  ok(blobMaxSpeed(lo) < 30, `Z: bottom blob at rest (maxSpeed ${blobMaxSpeed(lo).toFixed(1)} < 30)`);
+  ok(blobMaxSpeed(hi) < 30, `Z: top blob at rest (maxSpeed ${blobMaxSpeed(hi).toFixed(1)} < 30)`);
+  for (const [name, sb] of [['bottom', lo], ['top', hi]]) {
+    const a = Math.abs(polyArea(sb.nodes));
+    ok(a > sb.restArea * 0.5 && a < sb.restArea * 1.5,
+       `Z: ${name} blob kept its area (${(a / sb.restArea).toFixed(2)}× rest)`);
+  }
+  ok(blobCentroid(hi).y < blobCentroid(lo).y - 20,
+     `Z: top blob rests ON the bottom one, not inside it (Δy=${(blobCentroid(lo).y - blobCentroid(hi).y).toFixed(0)})`);
+}
+
 function testSoftDecay() {
   console.log('X. a perturbed blob (no gravity) loses its motion — damping is genuinely dissipative');
   reset({ gravity: false });
   const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
   const sb = buildSoftBall(W.cw / 2, W.ch / 2, 40, MATERIALS.jelly);
+  const c0 = blobCentroid(sb);
   for (const b of sb.nodes) {                       // radial kick (breathing perturbation)
-    const rx = b.x - sb.center.x, ry = b.y - sb.center.y, rl = Math.hypot(rx, ry) || 1;
+    const rx = b.x - c0.x, ry = b.y - c0.y, rl = Math.hypot(rx, ry) || 1;
     b.vx += rx / rl * 300; b.vy += ry / rl * 300;
   }
   run(240 * 5);
@@ -533,5 +591,8 @@ testSoftFlattenRecover();
 testSoftSettles();
 testSoftAreaPreserved();
 testSoftDecay();
+testSoftBudget();
+testSoftHardSquash();
+testSoftStack();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

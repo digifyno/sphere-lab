@@ -23,7 +23,10 @@ export function drawSoftBodies(tx) {
     for (let i = 0; i < n; i++) tx.quadraticCurveTo(nodes[i].x, nodes[i].y, mx(i), my(i));
     tx.closePath();
 
-    const cx = sb.center.x, cy = sb.center.y;
+    // centroid computed here (render must not assume physics ran this frame)
+    let cx = 0, cy = 0;
+    for (let i = 0; i < n; i++) { cx += nodes[i].x; cy += nodes[i].y; }
+    cx /= n; cy /= n;
     let R = 1;
     for (let i = 0; i < n; i++) R = Math.max(R, Math.hypot(nodes[i].x - cx, nodes[i].y - cy));
     const c = mat.color;

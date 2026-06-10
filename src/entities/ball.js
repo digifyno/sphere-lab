@@ -156,8 +156,7 @@ export function spawnBall(x, y) {
     if (!sb) return null;
     const vx = rand(-30, 30), vy = rand(-30, 30);
     for (const nde of sb.nodes) { nde.vx = vx; nde.vy = vy; }
-    sb.center.vx = vx; sb.center.vy = vy;
-    return sb.center;
+    return sb.nodes[0];
   }
   const b = new Ball(x, y, PHYS.spawnRadius, mat);
   b.vx = rand(-30, 30); b.vy = rand(-30, 30);

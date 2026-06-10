@@ -1,12 +1,17 @@
 /**
  * Soft body — a genuine deformable blob, not the cosmetic squash scalar.
  *
- * A soft ball is a centre node + a ring of node `Ball`s joined by perimeter /
- * spoke / brace springs, plus a gas-pressure force (softForces.js) that
- * preserves area. The nodes are ORDINARY balls in the pool, so they collide
- * with walls + rigid balls through the untouched rigid solver — two-way
- * coupling for free. The blob flattens on impact, stores elastic energy in its
- * shape, and wobbles back.
+ * A soft ball is a closed ring of node `Ball`s joined by perimeter springs
+ * (the membrane), held in shape by **shape matching** (Müller 2005) and an
+ * area-preserving gas pressure (softForces.js). The nodes are ORDINARY balls
+ * in the pool, so they collide with walls + rigid balls through the untouched
+ * rigid solver — two-way coupling for free. The blob flattens on impact,
+ * stores elastic energy in its shape, and wobbles back.
+ *
+ * There is no centre ball: the centroid is computed from the ring, so a blob
+ * costs exactly N balls (N ≤ 12 against the 260 cap). Intra-blob node pairs
+ * are skipped by the rigid solver (contactSolver.js) — internal structure is
+ * entirely the job of springs + shape matching + pressure.
  *
  * Gated by `mat.soft`: a soft material is still a plain disk when created via
  * `new Ball(...)` (so existing scenes/tests are byte-identical) — only
@@ -33,16 +38,32 @@ export function polyArea(nodes) {
 }
 
 export class SoftBody {
-  /** @param {Ball[]} nodes @param {Ball} center @param {import('./materials.js').Material} mat */
-  constructor(nodes, center, mat) {
+  /** @param {Ball[]} nodes @param {import('./materials.js').Material} mat */
+  constructor(nodes, mat) {
     this.id = ++SBID;
     this.nodes = nodes;        // ring Balls, CCW — real balls in balls[]
-    this.center = center;      // centre Ball
     this.mat = mat;            // the parent (visual) material
     this.restArea = Math.abs(polyArea(nodes));
-    this._prevArea = this.restArea;
+    /** Rest shape in centroid-local coords — the shape-matching target. */
+    this.restShape = [];
+    /** Current centroid — refreshed by applySoftForces each step. */
+    this.cx = 0; this.cy = 0;
+    /** Effective radius (centroid → node centre) for shadows/FX. */
+    this.R = 1;
     /** @type {Spring[]} */ this.springs = [];
     this.dead = false;
+    this.refreshCentroid();
+    for (const b of nodes) {
+      this.restShape.push({ x: b.x - this.cx, y: b.y - this.cy });
+      this.R = Math.max(this.R, Math.hypot(b.x - this.cx, b.y - this.cy));
+    }
+  }
+
+  refreshCentroid() {
+    let cx = 0, cy = 0;
+    const n = this.nodes.length;
+    for (let i = 0; i < n; i++) { cx += this.nodes[i].x; cy += this.nodes[i].y; }
+    this.cx = cx / n; this.cy = cy / n;
   }
 }
 
@@ -65,37 +86,35 @@ function nodeMaterial(mat) {
  * @param {import('./materials.js').Material} mat
  */
 export function buildSoftBall(cx, cy, R, mat) {
-  const N = mat.softNodes ?? 12;
-  if (balls.length + N + 1 > 260) return null;
+  const N = Math.min(12, mat.softNodes ?? 10);
+  if (balls.length + N > 260) return null;
   const nmat = nodeMaterial(mat);
   const nodeR = Math.max(4, R * 0.42);           // nodes overlap → a closed surface
-  const center = new Ball(cx, cy, Math.max(4, R * 0.4), nmat);
-  center.isSoftNode = center.isSoftCenter = true;
-  balls.push(center);
+  // The blob's total mass equals an equivalent rigid disk of radius R (same
+  // r²·ρ·0.001 convention as ball.js), split evenly across the ring — so a
+  // jelly blob weighs the same as a rubber ball its size, not N× more.
+  const nodeMass = Math.max(1e-4, R * R * mat.density * 0.001 / N);
   const nodes = [];
   for (let i = 0; i < N; i++) {
     const ang = (i / N) * TAU;
     const b = new Ball(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R, nodeR, nmat);
+    b.mass = nodeMass;
+    b.inertia = 0.5 * nodeMass * nodeR * nodeR;
     b.isSoftNode = true;
     balls.push(b); nodes.push(b);
   }
-  const sb = new SoftBody(nodes, center, mat);
-  center.soft = sb;
+  const sb = new SoftBody(nodes, mat);
   for (const b of nodes) b.soft = sb;
 
-  const k = mat.softStiff ?? 0.7, dmp = 0.05;
-  const mk = (a, b, kk) => {
-    const d = Math.hypot(a.x - b.x, a.y - b.y);
-    const s = new Spring(a, b, d, kk, dmp); s.tag = 'soft';
-    W.springs.push(s); sb.springs.push(s);
-  };
+  // Perimeter springs only — the membrane. Internal structure (spokes/braces)
+  // is replaced by shape matching, which has no facet-buckling modes.
+  const k = mat.softStiff ?? 0.35;
   for (let i = 0; i < N; i++) {
-    mk(nodes[i], nodes[(i + 1) % N], k);         // perimeter (the surface)
-    mk(center, nodes[i], k * 0.5);               // spoke
-    mk(nodes[i], nodes[(i + 2) % N], k * 0.4);   // short brace (anti-shear)
+    const a = nodes[i], b = nodes[(i + 1) % N];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    const s = new Spring(a, b, d, k, 0.05); s.tag = 'soft';
+    W.springs.push(s); sb.springs.push(s);
   }
-  sb.restArea = Math.abs(polyArea(nodes));
-  sb._prevArea = sb.restArea;
   softBodies.push(sb);
   return sb;
 }
@@ -106,13 +125,12 @@ export function buildSoftBall(cx, cy, R, mat) {
 export function cullSoftBodies() {
   for (let i = softBodies.length - 1; i >= 0; i--) {
     const sb = softBodies[i];
-    let lost = sb.center._dead || !balls.includes(sb.center);
+    let lost = false;
     for (let k = 0; k < sb.nodes.length && !lost; k++) {
       if (sb.nodes[k]._dead || !balls.includes(sb.nodes[k])) lost = true;
     }
     if (!lost) continue;
     for (const b of sb.nodes) b._dead = true;
-    sb.center._dead = true;
     for (const s of sb.springs) {
       const idx = W.springs.indexOf(s);
       if (idx >= 0) W.springs.splice(idx, 1);

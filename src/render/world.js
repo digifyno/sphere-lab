@@ -9,6 +9,7 @@ import { PHYS } from '../core/config.js';
 import { TAU, clamp } from '../core/math.js';
 import { mix, withAlpha } from '../core/color.js';
 import { balls } from '../entities/ball.js';
+import { softBodies } from '../entities/softBody.js';
 import { isBallOnScreen } from './ball.js';
 import { light } from './canvas.js';
 
@@ -260,14 +261,12 @@ export function drawBallShadows(tx) {
   // the highlights instead of sitting straight below every ball.
   const lx = light.x * W.cw, ly = light.y * W.ch;
   tx.save();
-  for (const b of balls) {
+  const castShadow = (b) => {
     const dist = floorY - (b.y + b.r);
-    if (dist < 0 || dist > 300) continue;
+    if (dist < 0 || dist > 300) return;
     // Viewport cull — shadows sit at the floor, so check horizontally
     // against the camera view. Saves the 3-layer ellipse stack per ball.
-    if (!isBallOnScreen(b)) continue;
-    // a soft blob casts one shadow from its centre node, not 15 little ones
-    if (b.isSoftNode && !b.isSoftCenter) continue;
+    if (!isBallOnScreen(b)) return;
     // distance-based: the higher the ball, the wider + fainter the shadow
     const t = dist / 300;
     // Contact hardening: the penumbra collapses as the ball nears the floor —
@@ -305,6 +304,22 @@ export function drawBallShadows(tx) {
     tx.beginPath();
     tx.ellipse(sx, floorY, b.r * spread * 1.7 * stretch, b.r * 0.45 * spread, rot, 0, TAU);
     tx.fill();
+  };
+  for (const b of balls) {
+    // a soft blob casts ONE shadow (below), not a little one per ring node
+    if (b.isSoftNode) continue;
+    castShadow(b);
+  }
+  // per-blob shadow from the centroid + effective radius (node ring + node r)
+  for (const sb of softBodies) {
+    const n = sb.nodes.length;
+    if (n < 3) continue;
+    let cx = 0, cy = 0;
+    for (const nd of sb.nodes) { cx += nd.x; cy += nd.y; }
+    cx /= n; cy /= n;
+    let R = 1;
+    for (const nd of sb.nodes) R = Math.max(R, Math.hypot(nd.x - cx, nd.y - cy) + nd.r);
+    castShadow({ x: cx, y: cy, r: R, mat: sb.mat, heat: 0 });
   }
   tx.restore();
 }
