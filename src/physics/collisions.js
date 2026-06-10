@@ -201,7 +201,6 @@ export function tryFluidMerge(a, b) {
   a.x = nx; a.y = ny;
   a.vx = nvx; a.vy = nvy;
   a.r = combinedR;
-  a.area = Math.PI * combinedR * combinedR;
   a.mass = combinedR * combinedR * a.mat.density * 0.001;
   a.inertia = 0.5 * a.mass * combinedR * combinedR;
   a.omega *= 0.5;

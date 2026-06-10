@@ -32,9 +32,6 @@ import { cullSoftBodies, softBodies } from '../entities/softBody.js';
 import { mouse } from '../input/mouse.js';
 import { getTool } from '../input/tools.js';
 
-/** Reference cross-section: a 20 px radius ball (= the default spawn radius). */
-const REF_AREA = Math.PI * 20 * 20;
-
 export function physicsStep(dt) {
   if (W.rainSpawn && Math.random() < 0.1 && balls.length < 200) {
     const mat = MATERIALS[pick(MAT_KEYS)];
@@ -103,7 +100,6 @@ export function physicsStep(dt) {
         b.r = b.r - dr;
         b.mass = b.r * b.r * mat.density * 0.001;
         b.inertia = 0.5 * b.mass * b.r * b.r;
-        b.area = Math.PI * b.r * b.r;
         if (Math.random() < dt * meltRate * 25) {
           spawnChip(b.x + rand(-b.r * 0.4, b.r * 0.4), b.y + b.r * 0.6, 0, 1, 30, '#7fc4ff');
         }
@@ -326,7 +322,6 @@ export function physicsStep(dt) {
     // the old tuned default, so the PHYS.drag slider keeps its meaning.)
     // Suppressed in N-body space (vacuum) so orbits don't slowly spiral in.
     const vmag = len(b.vx, b.vy);
-    const areaScale = b.area / REF_AREA;   // used by Magnus below (larger ball, more lift)
     if (!W.nbody) {
       // dragMul is the material's shape/Cd factor (a floppy balloon envelope
       // resists far more than a smooth sphere of the same density).
@@ -337,15 +332,24 @@ export function physicsStep(dt) {
       b.omega *= Math.max(0, 1 - PHYS.drag * densityScale * dt * 0.8);
     }
 
-    // Magnus: F⊥ = k·ω·v·A at low spin, but the lift coefficient saturates with
-    // the spin parameter S = ω·r/|v| (Kutta–Joukowski + empirical Cl(S)≈tanh).
-    // The (S0/S)·tanh(S/S0) factor → 1 as S→0 (keeps the tuned curveball feel)
-    // and rolls off at high spin, so a fast small spinner no longer gets an
+    // Magnus: the FORCE scales with the ball's cross-section (F⊥ ∝ ω·v·A) but
+    // so does its mass, so the sideways ACCELERATION is radius-free and goes
+    // as ρ_air/ρ_ball — a spinning balloon swerves hard, gold barely deflects,
+    // and two different-size balls of one material curve identically (real
+    // Magnus: both F and m grow with size, the ratio doesn't). The previous
+    // areaScale multiplied the F-scaling straight into velocity without /m,
+    // making big heavy balls curve like wiffle balls. The lift coefficient
+    // still saturates with the spin parameter S = ω·r/|v| (Kutta–Joukowski +
+    // empirical Cl(S)≈tanh): → 1 as S→0 (keeps the tuned curveball feel at the
+    // ρ≈1 default), rolls off at high spin so a fast small spinner gets no
     // unbounded sideways force. Velocity snapshot avoids self-contamination.
-    if (vmag > 10 && Math.abs(b.omega) > 0.1) {
+    // Airborne only (groundT ≤ 0): lift needs a free stream around the ball —
+    // a ball rolling on a surface or packed in a pile has none, and pile-
+    // internal "lift" measurably propped up heap slopes.
+    if (vmag > 10 && Math.abs(b.omega) > 0.1 && b.groundT <= 0) {
       const S = Math.abs(b.omega) * b.r / vmag;
       const sat = 0.4 * Math.tanh(S / 0.4) / S;
-      const magK = PHYS.magnus * 0.002 * areaScale * sat;
+      const magK = PHYS.magnus * 0.002 * sat / Math.max(0.05, mat.density);
       const mvx = -b.vy * b.omega * magK * dt;
       const mvy =  b.vx * b.omega * magK * dt;
       b.vx += mvx;

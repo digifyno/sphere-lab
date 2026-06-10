@@ -36,8 +36,6 @@ export class Ball {
     this.mat = mat;
     this.mass = r * r * mat.density * 0.001;
     this.inertia = 0.5 * this.mass * r * r;
-    /** Cross-sectional area (πr²) — used by drag + Magnus for physical scaling. */
-    this.area = Math.PI * r * r;
     this.angle = rand(0, TAU);
     this.omega = 0;
     this.grabbed = false;

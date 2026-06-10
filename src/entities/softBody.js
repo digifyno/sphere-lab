@@ -147,7 +147,6 @@ export function enrollSoftBody(nodes, mat, R, data) {
   for (const b of nodes) {
     b.mat = nmat;
     b.r = nodeR;
-    b.area = Math.PI * nodeR * nodeR;
     b.mass = nodeMass;
     b.inertia = 0.5 * nodeMass * nodeR * nodeR;
     b.isSoftNode = true;

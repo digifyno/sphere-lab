@@ -1312,6 +1312,35 @@ function testFloatLineAtWaterDensity() {
      `BB: ice floats LOW in the water, not riding on top like cork (centroid ${(ice.y - W.waterY).toFixed(1)} px vs waterline)`);
 }
 
+// ───────────── BC: Magnus deflection — density-aware, radius-free ──────────
+function testMagnusScaling() {
+  console.log('BC. Magnus: light materials curve, dense barely deflect; size cancels out');
+  // Same radius, spin and speed — the sideways ACCELERATION goes as 1/ρ
+  // (force and mass both scale with cross-section), so wood must out-curve
+  // gold by a wide margin.
+  reset({ gravity: false, drag: 0 });
+  const wood = new Ball(100, 300, 20, MATERIALS.wood); wood.vx = 800; wood.omega = 8;
+  const gold = new Ball(100, 500, 20, MATERIALS.gold); gold.vx = 800; gold.omega = 8;
+  balls.push(wood, gold);
+  run(120);                                    // 0.5 s of flight
+  ok(noNaN(), 'BC: no NaN');
+  ok(Math.abs(wood.vy) > Math.abs(gold.vy) * 5,
+     `BC: wood (ρ=0.62) curves ≫ gold (ρ=19.3): |vy| ${Math.abs(wood.vy).toFixed(2)} vs ${Math.abs(gold.vy).toFixed(2)}`);
+
+  // Same material, same spin/speed, very different radii — in the linear
+  // (low spin-parameter) regime the deflection must be nearly identical:
+  // real Magnus force grows with size exactly as fast as mass does.
+  reset({ gravity: false, drag: 0 });
+  const small = new Ball(100, 300, 10, MATERIALS.steel); small.vx = 800; small.omega = 2;
+  const big   = new Ball(100, 500, 40, MATERIALS.steel); big.vx = 800; big.omega = 2;
+  balls.push(small, big);
+  run(120);
+  const vs = Math.abs(small.vy), vb = Math.abs(big.vy);
+  ok(vs > 0 && vb > 0, `BC: both deflected (small ${vs.toFixed(3)}, big ${vb.toFixed(3)})`);
+  ok(Math.abs(vs - vb) < Math.max(vs, vb) * 0.15,
+     `BC: deflection is radius-free (small ${vs.toFixed(3)} ≈ big ${vb.toFixed(3)}, within 15 %)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1367,5 +1396,6 @@ testDeadBallDropsSprings();
 testMoltenGripSingleLaw();
 testHeatConductionRate();
 testFloatLineAtWaterDensity();
+testMagnusScaling();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }
