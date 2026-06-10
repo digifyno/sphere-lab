@@ -31,6 +31,11 @@ import { tryAdhere } from './adhesion.js';
 const MAX_DENTS = 9;
 /** Minimum impulse magnitude that leaves a dent on a dentable ball. */
 const DENT_THRESHOLD = 55;
+/** Yield velocity (px/s): contact pressure scales with impact speed, so a
+ *  slow heavy roll polishes gold but never dents it — only real hits do. */
+const DENT_VN = 170;
+/** Fraction of the separating velocity the plastic dent work consumes. */
+const DENT_BITE = 0.18;
 /** How many cracks a fragile ball can show. */
 const MAX_CRACKS = 7;
 /** Minimum *normal-velocity* that registers as damage on a fragile ball. */
@@ -82,10 +87,14 @@ function addCrack(ball, worldAngle, vn, hitterMat) {
  * @param {import('../entities/ball.js').Ball} ball
  * @param {number} worldAngle — angle from ball center to impact point (world)
  * @param {number} magnitude  — impulse magnitude
+ * @param {number} vn         — impact normal velocity (px/s); below the yield
+ *                              speed the contact stays elastic, no dent
+ * @returns {boolean} true if a dent was added or deepened — the caller takes
+ *                    the plastic work out of the rebound
  */
-function addDent(ball, worldAngle, magnitude) {
-  if (!ball.mat.dentable || ball.isFragment) return;
-  if (magnitude < DENT_THRESHOLD) return;
+function addDent(ball, worldAngle, magnitude, vn) {
+  if (!ball.mat.dentable || ball.isFragment) return false;
+  if (magnitude < DENT_THRESHOLD || vn < DENT_VN) return false;
   if (!ball.dents) ball.dents = [];
   const local = worldAngle - ball.angle;
   for (const d of ball.dents) {
@@ -93,7 +102,7 @@ function addDent(ball, worldAngle, magnitude) {
     if (diff > Math.PI) diff = TAU - diff;
     if (diff < 0.32) {
       d.depth = Math.min(1, d.depth + 0.10);
-      return;
+      return true;
     }
   }
   if (ball.dents.length >= MAX_DENTS) ball.dents.shift();
@@ -101,6 +110,7 @@ function addDent(ball, worldAngle, magnitude) {
     localAngle: local,
     depth: clamp(0.28 + magnitude * 0.0015, 0.28, 0.9)
   });
+  return true;
 }
 
 /** Dispatch material-specific visual debris for one contact. */
@@ -329,13 +339,14 @@ export function ballContactEvent(c) {
 
   const hx = (a.x + b.x) * 0.5;
   const hy = (a.y + b.y) * 0.5;
+  let dentA = false, dentB = false;
   if (!aFractured) {
     spawnImpactFor(a.mat, hx, hy, nx, ny, mag);
     const dA = (a.mat.deform ?? 0.4);
     const sqMaxA = a.mat.squashMax ?? 0.35;
     a.squash = 1 - Math.min(sqMaxA * dA, mag * 0.0025 * dA);
     a.squashAng = Math.atan2(ny, nx);
-    addDent(a, Math.atan2(ny, nx), mag);
+    dentA = addDent(a, Math.atan2(ny, nx), mag, absVn);
     addCrack(a, Math.atan2(ny, nx), absVn, b.mat);
   }
   if (!bFractured) {
@@ -344,8 +355,19 @@ export function ballContactEvent(c) {
     const sqMaxB = b.mat.squashMax ?? 0.35;
     b.squash = 1 - Math.min(sqMaxB * dB, mag * 0.0025 * dB);
     b.squashAng = Math.atan2(-ny, -nx);
-    addDent(b, Math.atan2(-ny, -nx), mag);
+    dentB = addDent(b, Math.atan2(-ny, -nx), mag, absVn);
     addCrack(b, Math.atan2(-ny, -nx), absVn, a.mat);
+  }
+  // Plastic work: a freshly-made dent comes out of the rebound. Equal/opposite
+  // impulse along the normal — momentum conserved, energy strictly removed.
+  if (dentA || dentB) {
+    const vrel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;   // >0 separating
+    if (vrel > 0 && c.invSum > 0) {
+      const k = (dentA && dentB) ? DENT_BITE * 2 : DENT_BITE;
+      const j = vrel * Math.min(0.5, k) / c.invSum;
+      a.vx += j * c.invMa * nx; a.vy += j * c.invMa * ny;
+      b.vx -= j * c.invMb * nx; b.vy -= j * c.invMb * ny;
+    }
   }
   // Hertzian contact-time brightness: a short contact (stiff/light/fast) gives
   // a bright tick, a long one (soft/heavy/slow) a dull thunk — f_c ∝ 1/τ,
@@ -459,7 +481,11 @@ export function collideWall(b, wall) {
     // Dent / crack sit on the side of the ball that actually touched the
     // wall — that's the direction from ball center to contact point,
     // which is opposite the outward normal (`-nx, -ny`).
-    addDent(b, Math.atan2(-ny, -nx), mag);
+    if (addDent(b, Math.atan2(-ny, -nx), mag, Math.abs(vn))) {
+      // plastic work: the dent eats part of the rebound
+      const vno = b.vx * nx + b.vy * ny;
+      if (vno > 0) { b.vx -= vno * DENT_BITE * nx; b.vy -= vno * DENT_BITE * ny; }
+    }
     addCrack(b, Math.atan2(-ny, -nx), Math.abs(vn));
     Snd.wall(b, mag, Math.abs(vn));
   }
@@ -513,7 +539,10 @@ export function collidePeg(b, peg) {
   if (mag > 4) {
     spawnImpactFor(b.mat, peg.x + nx * peg.r, peg.y + ny * peg.r, nx, ny, mag);
     // Contact side of the ball is opposite the outward normal from the peg.
-    addDent(b, Math.atan2(-ny, -nx), mag);
+    if (addDent(b, Math.atan2(-ny, -nx), mag, Math.abs(vn))) {
+      const vno = b.vx * nx + b.vy * ny;
+      if (vno > 0) { b.vx -= vno * DENT_BITE * nx; b.vy -= vno * DENT_BITE * ny; }
+    }
     addCrack(b, Math.atan2(-ny, -nx), Math.abs(vn));
     if (peg.bumper) {
       b.vx += nx * 500 * invMass(b);

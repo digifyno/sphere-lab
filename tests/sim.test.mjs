@@ -19,6 +19,7 @@ import { physicsStep } from '../src/physics/step.js';
 import { clearContactCache } from '../src/physics/contactSolver.js';
 import { NBODY_G } from '../src/physics/forces.js';
 import { buildSoftBall, softBodies, polyArea } from '../src/entities/softBody.js';
+import { matVelRestScale } from '../src/physics/materialMods.js';
 
 const DT = 1 / 240;
 let passed = 0, failed = 0;
@@ -826,6 +827,37 @@ function testAngleOfRepose() {
      `AF: interlocking grains hold steeper rubble than round boulders (sand ${sandTower.angle.toFixed(0)}° vs rock ${rockTower.angle.toFixed(0)}°)`);
 }
 
+// ───────────────── AG: metal plasticity (gold dents cost energy) ────────────
+function testGoldPlasticity() {
+  console.log('AG. denting is plastic work: gold rebounds below its elastic model on denting hits');
+  const pad = 40;
+  const wallBounce = (v) => {
+    reset({ gravity: false, drag: 0 });
+    addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+    const b = new Ball(150, 400, 20, MATERIALS.gold); b.vx = -v;
+    balls.push(b);
+    for (let i = 0; i < 240 * 2; i++) {
+      physicsStep(DT);
+      if (b.vx > 0) break;
+    }
+    return { e: b.vx / v, dents: (b.dents || []).length };
+  };
+  // the elastic prediction (no plasticity): e_model = rest · velRestScale(v)
+  const model = (v) => MATERIALS.gold.restitution * matVelRestScale(v, MATERIALS.gold);
+
+  const gentle = wallBounce(120);
+  ok(gentle.dents === 0,
+     `AG: a 120 px/s tap leaves no dents (got ${gentle.dents}) — yield needs real impact`);
+  ok(Math.abs(gentle.e - model(120)) < model(120) * 0.12,
+     `AG: gentle bounce matches the elastic model (${gentle.e.toFixed(3)} ≈ ${model(120).toFixed(3)})`);
+
+  const hard = wallBounce(600);
+  ok(hard.dents > 0, `AG: a 600 px/s slam dents (${hard.dents} dent)`);
+  ok(hard.e < model(600) * 0.93,
+     `AG: denting bite — rebound ${hard.e.toFixed(3)} < elastic model ${model(600).toFixed(3)} · 0.93 (plastic work eats energy)`);
+  ok(hard.e > 0.05, `AG: still bounces a little (${hard.e.toFixed(3)} > 0.05)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -860,5 +892,6 @@ testHoneyVsWater();
 testLavaCoolsStiff();
 testFractureRealism();
 testAngleOfRepose();
+testGoldPlasticity();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }
