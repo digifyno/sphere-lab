@@ -680,6 +680,35 @@ function drawFresnelRim(tx, b) {
   tx.beginPath(); tx.arc(b.x, b.y, b.r, 0, TAU); tx.fill();
 }
 
+/** Jagged shard body for brittle fragments: the polygon from fracture.js,
+ *  rotated with the ball's spin, lit with the same key-light direction —
+ *  a bright broken-face edge toward the light, a dark back edge away. */
+function drawShardBody(tx, b) {
+  const pts = b.shard, k = pts.length;
+  const c = b.mat.color;
+  tx.save();
+  tx.translate(b.x, b.y);
+  tx.rotate(b.angle);
+  tx.beginPath();
+  for (let i = 0; i < k; i++) {
+    const px = Math.cos(pts[i].a) * pts[i].r * b.r;
+    const py = Math.sin(pts[i].a) * pts[i].r * b.r;
+    if (i === 0) tx.moveTo(px, py); else tx.lineTo(px, py);
+  }
+  tx.closePath();
+  const g = tx.createLinearGradient(-b.r, -b.r, b.r, b.r);
+  g.addColorStop(0, lighten(c, 0.50));
+  g.addColorStop(0.5, c);
+  g.addColorStop(1, darken(c, 0.45));
+  tx.fillStyle = g;
+  if (b.mat.refract) tx.globalAlpha *= 0.85;     // glass/ice shards stay translucent
+  tx.fill();
+  tx.lineWidth = 1;
+  tx.strokeStyle = withAlpha(lighten(c, 0.6), 0.7);
+  tx.stroke();
+  tx.restore();
+}
+
 export function drawBall(tx, b) {
   // Soft-body nodes are not drawn individually — the blob is painted as one
   // shape by drawSoftBodies.
@@ -720,6 +749,15 @@ export function drawBall(tx, b) {
     alphaScale = Math.max(0, b.lifespan / 0.8);
     tx.save();
     tx.globalAlpha = alphaScale;
+  }
+
+  // Brittle fragments are jagged shards, not little spheres — the physics
+  // body stays a disk, only the paint changes (fracture.js made the outline).
+  if (b.shard) {
+    drawShardBody(tx, b);
+    if (alphaScale !== 1) tx.restore();
+    if (wobbling) tx.restore();
+    return;
   }
 
   drawMotionStreak(tx, b);

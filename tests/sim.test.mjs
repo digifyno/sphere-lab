@@ -688,6 +688,78 @@ function testLavaCoolsStiff() {
   ok(lavas.length === 2, `AD: crusted lava stays separate (${lavas.length} balls)`);
 }
 
+// ───────────────── AE: brittle fracture realism ────────────────────────────
+function testFractureRealism() {
+  console.log('AE. fracture: mass conserved, energy-honest, skewed shards, mass-aware');
+  const pad = 40;
+
+  // 1+2+3: aggregate 6 glass shatters — fragment area ≈ conserved, KE never
+  // injected across the fracture step, sizes right-skewed (big + many small)
+  const ratios = [], spreads = [];
+  let keInjected = false, shattered = 0;
+  for (let k = 0; k < 6; k++) {
+    reset();
+    addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+    const g = new Ball(W.cw / 2, W.ch - pad - 220, 20, MATERIALS.glass);
+    g.vy = 700; balls.push(g);
+    for (let i = 0; i < 240 * 2; i++) {
+      const keBefore = totalKE();
+      physicsStep(DT);
+      if (balls.length > 1) {
+        shattered++;
+        if (totalKE() > keBefore * 1.02) keInjected = true;
+        ratios.push(balls.reduce((s, b) => s + b.r * b.r, 0) / 400);
+        const rs = balls.map(b => b.r);
+        spreads.push(Math.max(...rs) / Math.min(...rs));
+        break;
+      }
+    }
+  }
+  ok(shattered === 6, `AE: all six glass drops shattered (${shattered}/6)`);
+  const meanRatio = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+  ok(meanRatio > 0.85 && meanRatio < 0.98,
+     `AE: fragment area ≈ conserved, small dust loss (${meanRatio.toFixed(2)}× in [0.85, 0.98])`);
+  ok(!keInjected, 'AE: fracture never injects kinetic energy');
+  const meanSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
+  ok(meanSpread > 2.5,
+     `AE: shard sizes are skewed — a few big, many small (max/min ${meanSpread.toFixed(1)} > 2.5)`);
+
+  // 4: the criterion is impact ENERGY, not bare speed — a tiny pebble tapping
+  // a glass boulder at 600 px/s breaks NOTHING (reduced mass is tiny)…
+  reset({ gravity: false, drag: 0 });
+  const peb = new Ball(480, 400, 6, MATERIALS.glass); peb.vx = 600;
+  const big = new Ball(560, 400, 30, MATERIALS.glass);
+  balls.push(peb, big);
+  run(120);
+  ok(balls.length === 2, `AE: pebble tap leaves boulder AND pebble whole (${balls.length} balls)`);
+
+  // …while the same boulder slamming a wall at 600 px/s shatters (its own
+  // mass supplies the energy; bigger pieces break EASIER, like real glass)
+  reset({ gravity: false, drag: 0 });
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const slam = new Ball(300, 400, 30, MATERIALS.glass); slam.vx = -600;
+  balls.push(slam);
+  run(300);
+  ok(balls.length > 1, `AE: boulder-on-wall slam at the same speed shatters (${balls.length} pieces)`);
+
+  // 5: threshold ordering — obsidian cleaves easiest, then ice, then glass
+  const wallHit = (mat, v) => {
+    reset({ gravity: false, drag: 0 });
+    addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+    const b = new Ball(300, 400, 20, mat); b.vx = -v;
+    balls.push(b);
+    run(300);
+    return balls.length;
+  };
+  ok(wallHit(MATERIALS.glass, 450) === 1, 'AE: glass shrugs off 450 px/s');
+  ok(wallHit(MATERIALS.ice, 450) > 1, 'AE: ice breaks at 450 px/s');
+  ok(wallHit(MATERIALS.ice, 350) === 1, 'AE: ice shrugs off 350 px/s');
+  ok(wallHit(MATERIALS.obsidian, 350) > 1, 'AE: obsidian cleaves at 350 px/s');
+
+  // 6: diamond is effectively unbreakable
+  ok(wallHit(MATERIALS.diamond, 1800) === 1, 'AE: diamond survives a 1800 px/s slam');
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -720,5 +792,6 @@ testMaterialOrderings();
 testMercurySplash();
 testHoneyVsWater();
 testLavaCoolsStiff();
+testFractureRealism();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

@@ -313,9 +313,12 @@ export function ballContactEvent(c) {
   if (b.mat.chip && Math.random() < b.mat.chip) spawnChip(b.x - nx * b.r * 0.8, b.y - ny * b.r * 0.8, -nx, -ny, 40, b.mat.color);
 
   // fracture / splash — impulses are already applied, so the partner still
-  // got its kick; a dead (shattered or splashed) ball skips FX below
-  const aFractured = tryFracture(a, absVn) || tryFluidSplit(a, absVn);
-  const bFractured = tryFracture(b, absVn) || tryFluidSplit(b, absVn);
+  // got its kick; a dead (shattered or splashed) ball skips FX below.
+  // The pair's reduced mass feeds the energy criterion: a pebble can't
+  // crack a boulder however fast it taps.
+  const mEff = 1 / c.invSum;
+  const aFractured = tryFracture(a, absVn, mEff) || tryFluidSplit(a, absVn);
+  const bFractured = tryFracture(b, absVn, mEff) || tryFluidSplit(b, absVn);
 
   if (!aFractured && a.mat.explosive && absVn > (a.mat.detonateV || 260)) lightFuse(a);
   if (!bFractured && b.mat.explosive && absVn > (b.mat.detonateV || 260)) lightFuse(b);
@@ -348,7 +351,6 @@ export function ballContactEvent(c) {
   // a bright tick, a long one (soft/heavy/slow) a dull thunk — f_c ∝ 1/τ,
   // τ ∝ (mEff/kEff)^(2/5)·v^(-1/5). Reduced mass + combined stiffness come
   // straight off the contact; audio-only, mutates nothing.
-  const mEff = 1 / c.invSum;
   const kEff = 1 / ((a.mat.deform ?? 0.4) + (b.mat.deform ?? 0.4) + 0.05);
   const tau = Math.pow(mEff / kEff, 0.4) * Math.pow(Math.max(absVn, 1), -0.2);
   const brightness = clamp(1 / (1 + tau * 3), 0.2, 1);

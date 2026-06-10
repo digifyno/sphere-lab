@@ -335,9 +335,11 @@ function buildStaticContacts() {
       if (dsq >= rw * rw) continue;
       const dl = Math.sqrt(dsq) || 1e-4;
       const nx = dx / dl, ny = dy / dl;
-      // Ball still outside the surface and approaching fast → a real impact, not
-      // a rest. Don't brake it here; collideWall bounces it once it penetrates.
-      if (dl > r && (b.vx * nx + b.vy * ny) < -STATIC_SUPPORT_VN) continue;
+      // Ball not yet penetrating and approaching fast → a real impact, not a
+      // rest. Don't brake it here; collideWall bounces it once it penetrates.
+      // (≥ with epsilon: a ball arriving EXACTLY at dl == r — possible when
+      // v·dt divides the gap — must not get its impact velocity zeroed.)
+      if (dl >= r - 0.01 && (b.vx * nx + b.vy * ny) < -STATIC_SUPPORT_VN) continue;
       const key = b.id + 'w' + w;
       const c = warm ? cache.get(key) : undefined;
       staticContacts.push({ b, nx, ny, invM, pn: c ? c.pn : 0, key });
@@ -350,9 +352,9 @@ function buildStaticContacts() {
       if (dsq >= rs * rs) continue;
       const dl = Math.sqrt(dsq) || 1e-4;
       const nx = dx / dl, ny = dy / dl;
-      // Same gate as walls: a fast approacher still clear of the peg surface is
+      // Same gate as walls: a fast approacher not yet into the peg surface is
       // an impact for collidePeg to bounce, not a rest to support.
-      if (dl > surf && (b.vx * nx + b.vy * ny) < -STATIC_SUPPORT_VN) continue;
+      if (dl >= surf - 0.01 && (b.vx * nx + b.vy * ny) < -STATIC_SUPPORT_VN) continue;
       const key = b.id + 'p' + p;
       const c = warm ? cache.get(key) : undefined;
       staticContacts.push({ b, nx, ny, invM, pn: c ? c.pn : 0, key });
