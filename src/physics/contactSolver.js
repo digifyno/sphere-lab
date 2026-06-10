@@ -185,8 +185,10 @@ export function solveBallContacts(dt, events) {
     // their smooth-surface friction (asperities bite), while their static cone
     // stays moderate. Round disks otherwise skate around each other and a pile
     // can't hold its angle of repose. Impact-gated so resting piles keep the
-    // honest static μ.
-    if (impact && (a.mat.roll ?? 0) >= 0.2 && (b.mat.roll ?? 0) >= 0.2) mu *= 2.2;
+    // honest static μ. Keyed on the explicit `granular` flag — `roll` is a
+    // damping coefficient, and liquids with strong tangential damping (honey,
+    // roll 0.25) must NOT inherit sand's asperity physics.
+    if (impact && a.mat.granular && b.mat.granular) mu *= 2.2;
 
     const angA = aDyn ? a.r * a.r / a.inertia : 0;
     const angB = bDyn ? b.r * b.r / b.inertia : 0;
@@ -282,11 +284,12 @@ export function solveBallContacts(dt, events) {
   // Sliding friction can't do this: its torque *drives* rolling. This is what
   // lets round grains stand in for angular sand — a heap holds its slope
   // instead of every grain slowly rolling downhill. Strictly dissipative
-  // (drives ω toward 0, never past it). Only granular pairs (both roll ≥ 0.2).
+  // (drives ω toward 0, never past it). Only granular pairs (`mat.granular`
+  // on both); `roll` still supplies the moment coefficient μr.
   for (let i = 0; i < contacts.length; i++) {
     const c = contacts[i];
+    if (!(c.a.mat.granular && c.b.mat.granular) || c.pn <= 0) continue;
     const mr = Math.min(c.a.mat.roll ?? 0, c.b.mat.roll ?? 0);
-    if (mr < 0.2 || c.pn <= 0) continue;
     if (c.aDyn) {
       const a = c.a, cap = mr * c.pn * a.r / a.inertia;
       a.omega -= clampv(a.omega, -cap, cap);

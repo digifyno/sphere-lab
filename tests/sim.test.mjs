@@ -13,13 +13,14 @@
 import './shim.mjs';
 import { W, addBox, clearWorld } from '../src/core/world.js';
 import { PHYS } from '../src/core/config.js';
-import { balls, Ball } from '../src/entities/ball.js';
+import { balls, Ball, wake } from '../src/entities/ball.js';
 import { MATERIALS } from '../src/entities/materials.js';
 import { physicsStep } from '../src/physics/step.js';
 import { clearContactCache } from '../src/physics/contactSolver.js';
 import { NBODY_G } from '../src/physics/forces.js';
 import { buildSoftBall, softBodies, polyArea } from '../src/entities/softBody.js';
 import { matVelRestScale } from '../src/physics/materialMods.js';
+import { spawnFlipper } from '../src/physics/flippers.js';
 
 const DT = 1 / 240;
 let passed = 0, failed = 0;
@@ -930,6 +931,119 @@ function testWoodGrain() {
      `AJ: along-grain slide ${along.toFixed(0)} px > across-grain ${across.toFixed(0)} px × 1.15`);
 }
 
+// ───────────────── AK–AO: review-pass regressions (contacts + materials) ───
+function testBalloonPairAndPartner() {
+  console.log('AK. a pop never short-circuits the partner: both balloons burst, TNT still fuses, diamond is sharp');
+  // two balloons slamming head-on above popV must BOTH burst
+  reset({ gravity: false, drag: 0 });
+  const a = new Ball(520, 400, 18, MATERIALS.balloon); a.vx = 400;
+  const b = new Ball(640, 400, 18, MATERIALS.balloon); b.vx = -400;
+  balls.push(a, b);
+  run(240);
+  ok(noNaN(), 'AK: no NaN');
+  ok(balls.length === 0, `AK: head-on balloon slam pops BOTH (${balls.length} left, want 0)`);
+
+  // TNT that pops a balloon experienced the same super-detonateV impact —
+  // its fuse must light even though the balloon died in the same contact
+  reset({ gravity: false, drag: 0 });
+  const t = new Ball(520, 400, 18, MATERIALS.tnt); t.vx = 700;
+  const bal = new Ball(640, 400, 18, MATERIALS.balloon);
+  balls.push(t, bal);
+  let fuseLit = false;
+  for (let i = 0; i < 240; i++) { physicsStep(DT); if (t.fuseT > 0) fuseLit = true; }
+  ok(fuseLit, 'AK: TNT that pops a balloon still lights its own fuse');
+  ok(balls.filter(x => x.mat.name === 'BALLOON').length === 0, 'AK: the balloon popped');
+
+  // diamond is the canonical sharp hitter — a moderate (sub-popV) touch pops
+  const poke = (mat, v) => {
+    reset({ gravity: false, drag: 0 });
+    const d = new Ball(520, 400, 16, mat); d.vx = v;
+    const m = new Ball(640, 400, 18, MATERIALS.balloon);
+    balls.push(d, m);
+    run(240);
+    return balls.filter(x => x.mat.name === 'BALLOON').length === 0;
+  };
+  ok(poke(MATERIALS.diamond, 300), 'AK: diamond pops a balloon at 300 px/s (sharp, well below popV)');
+  ok(!poke(MATERIALS.diamond, 100), 'AK: a 100 px/s diamond nudge leaves the balloon whole');
+  ok(!poke(MATERIALS.wood, 300), 'AK: blunt wood at the same 300 px/s does NOT pop it');
+}
+
+function testDentSaturation() {
+  console.log('AL. a fully-formed dent stops eating energy — plastic work needs deformation');
+  const pad = 40;
+  reset({ gravity: false, drag: 0 });
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const b = new Ball(150, 400, 20, MATERIALS.gold);
+  balls.push(b);
+  const bounce = () => {
+    b.x = 150; b.y = 400; b.vx = -600; b.vy = 0; b.omega = 0; wake(b);
+    for (let i = 0; i < 240; i++) { physicsStep(DT); if (b.vx > 0 && b.x > 120) break; }
+    return b.vx / 600;
+  };
+  const model = MATERIALS.gold.restitution * matVelRestScale(600, MATERIALS.gold);
+  const e1 = bounce();              // dents: plastic bite expected
+  bounce();                         // deepens to saturation
+  bounce(); bounce();               // saturated — no further deformation
+  const eSat = bounce();
+  ok(e1 < model * 0.93, `AL: first denting hit pays the plastic bite (${e1.toFixed(3)} < ${model.toFixed(3)}·0.93)`);
+  ok(b.dents && b.dents.length > 0 && b.dents[0].depth >= 1, 'AL: the dent saturated at full depth');
+  ok(eSat > model * 0.93,
+     `AL: once saturated the rebound returns to the elastic model (${eSat.toFixed(3)} ≈ ${model.toFixed(3)})`);
+}
+
+function testBalloonCeiling() {
+  console.log('AM. a free balloon survives its own buoyant rise — even in a tall world');
+  reset();
+  W.ch = 1600;
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const b = new Ball(W.cw / 2, W.ch - pad - 20, 18, MATERIALS.balloon);
+  balls.push(b);
+  run(240 * 6);
+  ok(noNaN(), 'AM: no NaN');
+  ok(balls.length === 1, `AM: the balloon did not self-pop on the ceiling (${balls.length} left)`);
+  ok(balls.length === 1 && balls[0].y < 300,
+     `AM: it rose and bobs at the ceiling (y=${balls.length ? balls[0].y.toFixed(0) : '—'})`);
+}
+
+function testHoneyNotGranular() {
+  console.log('AN. honey is a liquid, not sand — a collapsing tower slumps where grain rubble holds');
+  // A 12-high tower is far outside any static friction cone, so it MUST fall;
+  // what it relaxes to is what separates interlocking grains from a viscous
+  // liquid. With the (removed) roll>=0.2 gate honey kept a sand-like 47°.
+  buildTower(MATERIALS.honey, 7);
+  run(240 * 4);
+  const honeyTower = heapStats(7);
+  buildTower(MATERIALS.sand, 7);
+  run(240 * 4);
+  const sandTower = heapStats(7);
+  ok(noNaN(), 'AN: no NaN');
+  ok(honeyTower.angle < 43,
+     `AN: a honey tower slumps like a liquid (${honeyTower.angle.toFixed(0)}° < 43°)`);
+  ok(sandTower.angle > honeyTower.angle + 15,
+     `AN: grain rubble holds far steeper than honey (sand ${sandTower.angle.toFixed(0)}° vs honey ${honeyTower.angle.toFixed(0)}°)`);
+}
+
+function testFlipperDestructive() {
+  console.log('AO. flippers carry the same destructive contacts as walls: pops + splashes');
+  // balloon slammed into a static flipper above popV must burst
+  reset({ gravity: false, drag: 0 });
+  spawnFlipper(400, 500, 180, -1);
+  const b = new Ball(480, 420, 18, MATERIALS.balloon); b.vy = 800;
+  balls.push(b);
+  run(120);
+  ok(balls.length === 0, `AO: flipper slam pops the balloon (${balls.length} left)`);
+
+  // a big mercury blob slammed into a flipper splashes into beads
+  reset({ gravity: false, drag: 0 });
+  spawnFlipper(400, 500, 180, -1);
+  const m = new Ball(480, 420, 20, MATERIALS.mercury); m.vy = 800;
+  balls.push(m);
+  run(120);
+  ok(balls.filter(x => x.mat.name === 'MERCURY').length > 1,
+     `AO: flipper slam splashes mercury into beads (${balls.filter(x => x.mat.name === 'MERCURY').length})`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -968,5 +1082,10 @@ testGoldPlasticity();
 testBalloonPop();
 testSlimeBlob();
 testWoodGrain();
+testBalloonPairAndPartner();
+testDentSaturation();
+testBalloonCeiling();
+testHoneyNotGranular();
+testFlipperDestructive();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

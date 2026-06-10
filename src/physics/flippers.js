@@ -17,6 +17,7 @@ import { stats } from './stats.js';
 import { wake } from '../entities/ball.js';
 import { matVelRestScale, heatRestMod } from './materialMods.js';
 import { tryFracture } from './fracture.js';
+import { tryFluidSplit, tryPop } from './collisions.js';
 import { lightFuse } from './tnt.js';
 
 export function spawnFlipper(px, py, length, side) {
@@ -97,9 +98,12 @@ export function collideFlipper(b, f) {
   b.contactNy = ny;
 
   // Same static-surface side-effects as walls/pegs: a hard hit shatters a
-  // fragile ball or lights an explosive's fuse. tryFracture returns true when
-  // it consumed the ball, so skip the now-stale impact FX (matches collideWall).
+  // fragile ball, splashes a liquid, pops a membrane, or lights an
+  // explosive's fuse. Each try* returns true when it consumed the ball, so
+  // skip the now-stale impact FX (matches collideWall / collidePeg).
   if (tryFracture(b, Math.abs(vn))) return;
+  if (tryFluidSplit(b, Math.abs(vn))) return;
+  if (tryPop(b, Math.abs(vn))) return;
   if (b.mat.explosive && Math.abs(vn) > (b.mat.detonateV || 260)) lightFuse(b);
 
   spawnImpact(cx, cy, nx, ny, Math.abs(vn) * b.mass, '#ffb340');

@@ -328,7 +328,9 @@ export function physicsStep(dt) {
     const vmag = len(b.vx, b.vy);
     const areaScale = b.area / REF_AREA;   // used by Magnus below (larger ball, more lift)
     if (!W.nbody) {
-      const densityScale = 1 / Math.max(0.05, mat.density);
+      // dragMul is the material's shape/Cd factor (a floppy balloon envelope
+      // resists far more than a smooth sphere of the same density).
+      const densityScale = (mat.dragMul ?? 1) / Math.max(0.05, mat.density);
       const dragK = PHYS.drag * densityScale * (1 + vmag * 0.0018);
       const dragFactor = Math.max(0, 1 - dragK * dt);
       b.vx *= dragFactor; b.vy *= dragFactor;

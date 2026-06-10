@@ -101,8 +101,11 @@ function addDent(ball, worldAngle, magnitude, vn) {
     let diff = Math.abs(((d.localAngle - local) % TAU + TAU) % TAU);
     if (diff > Math.PI) diff = TAU - diff;
     if (diff < 0.32) {
+      const before = d.depth;
       d.depth = Math.min(1, d.depth + 0.10);
-      return true;
+      // A saturated dent can't deepen — no deformation means no plastic
+      // work, so the contact goes back to being elastic.
+      return d.depth > before;
     }
   }
   if (ball.dents.length >= MAX_DENTS) ball.dents.shift();
@@ -340,9 +343,13 @@ export function ballContactEvent(c) {
   }
 
   // membrane burst — a hot neighbour pops a balloon at ANY speed, a slam or
-  // a sharp/hard hitter at impact speed. Handles both balls; a popped ball
-  // is gone, so skip the rest of the contact bookkeeping.
-  if (tryPop(a, absVn, b) || tryPop(b, absVn, a)) return;
+  // a sharp/hard hitter at impact speed. Both balls are checked (never
+  // short-circuit: a head-on balloon-balloon slam bursts both), and the
+  // handler keeps going — the surviving partner experienced the same impact
+  // and still owes its fracture / fuse / squash / sound below. A popped ball
+  // is folded into the fractured flags so dead-ball FX are skipped.
+  const aPopped = tryPop(a, absVn, b);
+  const bPopped = tryPop(b, absVn, a);
 
   // ball-ball contact registers as a rolling surface for the sound mix +
   // rolling-resistance damping in step.js.
@@ -371,8 +378,8 @@ export function ballContactEvent(c) {
   // The pair's reduced mass feeds the energy criterion: a pebble can't
   // crack a boulder however fast it taps.
   const mEff = 1 / c.invSum;
-  const aFractured = tryFracture(a, absVn, mEff) || tryFluidSplit(a, absVn);
-  const bFractured = tryFracture(b, absVn, mEff) || tryFluidSplit(b, absVn);
+  const aFractured = aPopped || tryFracture(a, absVn, mEff) || tryFluidSplit(a, absVn);
+  const bFractured = bPopped || tryFracture(b, absVn, mEff) || tryFluidSplit(b, absVn);
 
   if (!aFractured && a.mat.explosive && absVn > (a.mat.detonateV || 260)) lightFuse(a);
   if (!bFractured && b.mat.explosive && absVn > (b.mat.detonateV || 260)) lightFuse(b);
