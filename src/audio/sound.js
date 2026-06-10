@@ -424,6 +424,20 @@ const MODAL = {
     ],
     attack: { type: 'lowpass', freq: 700, dur: 0.040, amp: 0.66 },
     reverbSend: 0.06
+  },
+  // Jelly — gelatin blub. Wet soft splat into a low fundamental with a pair
+  // of CLOSE partials that beat slowly — the audible wobble of the blob's
+  // shape modes (the soft body really does oscillate at a few Hz; the beat
+  // is its sonic signature). Dies fast: gelatin is heavily damped.
+  JELLY: {
+    resonance: 0.22, baseFreq: 200, sizeExp: 0.9,
+    modes: [
+      { ratio: 1.000, amp: 0.90, decay: 0.14 },
+      { ratio: 1.045, amp: 0.65, decay: 0.12 },
+      { ratio: 2.10,  amp: 0.18, decay: 0.05 }
+    ],
+    attack: { type: 'lowpass', freq: 750, dur: 0.045, amp: 0.72 },
+    reverbSend: 0.05
   }
 };
 

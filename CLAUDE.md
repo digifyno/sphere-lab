@@ -14,10 +14,14 @@ test harness lives in `tests/` — run `npm test` (no dependencies).
 | A material's density / bounciness  | `src/entities/materials.js`               |
 | A scene's layout                   | `src/scenes/<name>.js`                    |
 | Add a new scene                    | new file in `src/scenes/` + register in `src/scenes/index.js` + new `<button class="tab">` in `index.html` + tagline in `src/ui/sceneTitle.js` |
-| Ball-ball solver (warm start, friction cone, NGS) | `src/physics/contactSolver.js` |
+| Ball-ball solver (warm start, friction cone, NGS, rolling moment) | `src/physics/contactSolver.js` |
 | Contact side-effects (FX, sound, fracture, heat)  | `src/physics/collisions.js::ballContactEvent` |
 | Ball/wall + ball/peg collision math | `src/physics/collisions.js::collideWall / collidePeg` |
-| N-body gravity / particle fluid    | `src/physics/forces.js::applyNbody / applyFluidSim` |
+| Soft bodies (jelly/slime lattice)  | `src/entities/softBody.js` (build/cull) + `src/physics/softForces.js` (pressure + shape matching) + `src/render/softBody.js` |
+| Brittle fracture (energy criterion, shards) | `src/physics/fracture.js` |
+| Water/honey particle fluid (PBF)   | `src/physics/sph.js` (per-material `sphVisc`) |
+| Mercury splash / lava crust / balloon pop | `src/physics/collisions.js::tryFluidSplit / tryFluidMerge / tryPop` |
+| N-body gravity                     | `src/physics/forces.js::applyNbody`       |
 | Antimatter annihilation            | `src/physics/collisions.js::annihilate`   |
 | Helium lift (balloons)             | `src/physics/step.js` (`mat.lift`)        |
 | Solver iterations / warm-start     | `src/core/config.js` (`solverVel/solverPos/warmStart`) + UI `s-solver`/`t-warm` |
@@ -118,11 +122,11 @@ constant, that test is the contract.
 | Ice      | 0.92    | 0.32   | 0.04     | **Fragile** above 380 px/s, `chip=0.25` (chips every hit), floats |
 | Magnet   | 7.5     | 0.62   | 0.42     | Mutual `1/r²` attraction (NdFeB density) |
 | Mercury  | 13.55   | 0.22   | 0.08     | `fluid=true` — merges with other mercury at low relative speed |
-| Wood     | 0.62    | 0.42   | 0.62     | Floats (ρ < water), matte, dead bounce |
-| Sand     | 2.65    | 0.14   | 0.95     | Granular quartz grains — heap at an angle of repose |
-| Balloon  | 0.16    | 0.74   | 0.65     | `lift=1` — rises against gravity; grippy rubber membrane |
+| Wood     | 0.62    | 0.42   | 0.62     | Floats (ρ < water); anisotropic — slides easier along its grain (`fricAniso`) |
+| Sand     | 2.65    | 0.14   | 0.70     | Granular quartz grains — interlock (`roll=0.8` + solver rolling moment) heaps at repose |
+| Balloon  | 0.16    | 0.74   | 0.65     | `lift=1` rises; a membrane — `pops` on slams (>520 px/s), hot or sharp contact |
 | Antimatter | 1.0   | 0.50   | 0.20     | `antimatter` — annihilates ordinary matter on contact |
-| Honey    | 1.42    | 0.05   | 0.85     | `fluid=true` — viscous pool, clings to walls |
+| Honey    | 1.42    | 0.05   | 0.85     | `fluidSim` at 7× water's viscosity (`sphVisc`) — oozes, `cling`s to walls |
 | Water    | 1.0     | 0.04   | 0.02     | `fluidSim=true` — particle fluid: cohesion + viscosity, flows + levels |
 
 (Also defined in `materials.js`: diamond 3.52/0.96, obsidian 2.55/0.80 — a
@@ -131,10 +135,21 @@ slime, jelly — a real soft body, see `entities/softBody.js`.)
 
 Key behaviours:
 - **Squash amplitude + recovery** scale with `material.deform`. Rubber compresses heavily and stays compressed for ~150 ms; steel snaps back within one frame.
-- **Fragile materials** (glass, ice) shatter above a velocity threshold. See `src/physics/fracture.js` — spawns 6-9 smaller fragment balls with a ~3 s lifespan + particle shards + a shatter-specific sound.
+- **Jelly + slime are real soft bodies** when spawned: a ring of node balls held
+  by perimeter springs + shape matching + gas pressure (`entities/softBody.js`,
+  `physics/softForces.js`). Jelly wobbles (light damping), slime oozes
+  (overdamped) and its nodes keep `adhesive` so the blob glues onto things.
+- **Fragile materials** (glass, ice, obsidian) shatter on an impact-ENERGY
+  criterion (½·m_eff·vn² vs a crack energy ∝ r — `physics/fracture.js`): a
+  pebble can't crack a boulder, big balls break easier. 7-10 power-law-sized
+  fragment balls (~3 s lifespan) rendered as jagged shards + particle dust +
+  a shatter sound. Fragment area ≈ 92 % of the disk; KE never increases.
 - **Fragments** (`b.isFragment === true`) don't recursively shatter and fade out in their last 0.8 s.
 - **Chip materials** emit a debris chip every collision (not just at fracture) — ice perpetually sheds as it rolls.
-- **Fluid materials** (`material.fluid`) of the same kind merge on slow contact, conserving mass (area in 2D).
+- **Fluid materials** (`material.fluid`) of the same kind merge on slow contact, conserving mass (area in 2D) — and split back into beads when slammed (`tryFluidSplit`). Molten lava only merges/splashes while hot; a crusted blob (heat < 0.25) stacks until it solidifies to rock.
+- **Gold dents above a yield velocity** (170 px/s) and each dent is plastic
+  work — 18 % of the separating velocity is consumed (momentum-conserving).
+  Heat anneals dents away.
 
 ## Core concepts
 
@@ -181,7 +196,19 @@ Key behaviours:
   hard impacts lose more energy than gentle ones.
 - **Temperature effects** (`materialMods.js::heatRestMod / heatFricMod`) —
   hot rubber mushes, ice melts, steel goes plastic, plasma gets bouncier.
-- **Friction combination** uses geometric mean (`√(μa·μb)`).
+- **Friction combination** uses geometric mean (`√(μa·μb)`). Material μ values
+  are real kinetic coefficients and `PHYS.frictionMul` defaults to **1.0**
+  (the slider multiplies physical truth, not a hidden 0.5 haircut).
+- **Wood is anisotropic** (`materialMods.js::anisoFric`): μ·(1−fricAniso·cos²θ)
+  between the slip tangent and the grain axis (rotates with the ball; same
+  axis as the brushed highlight). Slides ~45 % easier along the grain.
+- **Granular contacts get a rolling-resistance moment** in the solver: capped
+  by `μr·Pₙ·r` (DEM rolling friction) for pairs where both `roll ≥ 0.2`, plus
+  an impact-gated interlock (μ×2.2 on genuine hits) — round disks otherwise
+  skate/roll and a sand pile can't hold its angle of repose.
+- **Static friction is cone-aware** (`step.js`): the low-speed stick only
+  holds while `|nx| ≤ μ·|ny|` — on steeper contacts gravity wins and the ball
+  keeps sliding (this is what stops sand welding into vertical towers).
 - **Rolling enhancement** — wall friction is 1.6× when |vₙ| < 80 to damp
   jitter so balls settle instead of buzzing.
 - **CCD:** each ball's motion is substepped so |Δx per step| < 0.6·r.
@@ -198,10 +225,17 @@ Key behaviours:
   softened 1/r² attraction between all balls. Pinned bodies (the star) attract
   without drifting; air drag is suppressed when `W.nbody` so orbits persist.
   `scenes/orbits.js` seeds circular orbits at `v = √(NBODY_G·M / R)`.
-- **Particle fluid** (`forces.js::applyFluidSim`, materials with `fluidSim`):
-  surface-tension cohesion (Akinci-style kernel) + viscosity between like drops;
-  the rigid solver supplies incompressibility. Water flows + levels; it does
-  **not** merge (that's the separate `fluid` flag used by mercury/honey/lava).
+- **Particle fluid** (`physics/sph.js`, materials with `fluidSim`): PBF density
+  projection + XSPH viscosity, grouped **per material** — each fluid reads its
+  own `sphVisc` (water 0.08, honey 0.55), so honey visibly oozes where water
+  sloshes. Neither merges (that's the separate `fluid` flag used by
+  mercury/lava, which also `tryFluidSplit` into beads when slammed).
+- **Soft bodies** (`mat.soft`, built by `buildSoftBall`): a ring of ≤12 node
+  balls (no centre ball) held by perimeter springs + **shape matching**
+  (best-fit rotation of the rest ring, `softShape` of the error closed per
+  step) + area-preserving gas pressure, damped only in its non-rigid motion.
+  Intra-blob pairs are skipped by the solver. Jelly wobbles; slime oozes and
+  sticks.
 - **Antimatter** (`mat.antimatter`): touching ordinary matter triggers
   `collisions.js::annihilate` — both balls die in a mass-scaled blast.
 - **Sleeping:** balls with `|v| < 9` and `|ω| < 1.2` for `0.45 s` go to sleep
@@ -288,10 +322,14 @@ shim (`tests/shim.mjs`) stubs `document`/`window`/canvas so the **real**
 `physicsStep` and the full app boot run under Node (audio is a safe no-op
 because `Snd.ctx` stays null).
 
-- `tests/sim.test.mjs` — physics invariants: momentum conservation, no energy
-  injection (total KE+PE never rises), resting stacks settle + sleep, no
-  tunnelling in a packed box, Newton's-cradle transfer, bound N-body orbit,
-  buoyancy by density, balloon lift, antimatter annihilation, fluid vs granular.
+- `tests/sim.test.mjs` — ~230 physics invariant asserts: momentum conservation,
+  no energy injection (total KE+PE never rises), resting stacks settle + sleep,
+  no tunnelling, Newton's-cradle transfer, bound N-body orbit, buoyancy by
+  density, balloon lift + pop, antimatter annihilation, soft-body shape
+  recovery/settling/area/budget, material-constant orderings (AA — the
+  contract when retuning `materials.js`), mercury splash, honey-vs-water
+  rheology, lava crusting, fracture energy criterion + mass conservation,
+  granular slope bounds, gold plasticity, slime adhesion, wood grain.
 - `tests/scenes.test.mjs` — every registered scene steps 3 s with no NaN/throw.
 - `tests/boot.test.mjs` — imports `main.js` (runs `init()`): UI, prefs, scene,
   loop wiring must resolve cleanly.
