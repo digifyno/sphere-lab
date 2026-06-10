@@ -138,9 +138,10 @@ export const MATERIALS = {
   // collects against the ceiling; soft and very bouncy. It's a MEMBRANE:
   // a hard slam, a hot ball, or a sharp/hard hitter bursts it — bang,
   // rubber shreds, air puff, gone. `dragMul` models the huge floppy
-  // envelope's air resistance: it caps the buoyant rise at ~350 px/s
-  // (≈3.5 m/s, a real balloon) — safely below its own popV, so a free
-  // balloon never bursts itself on the ceiling.
+  // envelope's air resistance: it caps a default-size balloon's buoyant
+  // rise at ~350 px/s (≈3.5 m/s, a real balloon) — safely below popV, so
+  // it never bursts itself on the ceiling. Oversized balloons (r ≳ 35)
+  // rise fast enough to burst on a long climb — also like real balloons.
   balloon: { name: 'BALLOON', color: '#ff5da2', density: 0.16, restitution: 0.74, friction: 0.65, metallic: 0,    glow: 0.08, refract: 0,    pitch: 620,  timbre: 'sine',     deform: 0.70, roll: 0.12,  heatKeep: 0.9920, cond: 0.04, bounceBack: 0.70, squashMax: 0.50, lift: 1, pops: true, popV: 520, dragMul: 2 },
   // Antimatter — touch any ordinary matter and both annihilate in a burst of
   // energy (radial blast + gamma flash + heat). Two antimatter balls coexist.

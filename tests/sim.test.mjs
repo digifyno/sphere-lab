@@ -1341,6 +1341,23 @@ function testMagnusScaling() {
      `BC: deflection is radius-free (small ${vs.toFixed(3)} ≈ big ${vb.toFixed(3)}, within 15 %)`);
 }
 
+// ───────────── BD: drag deceleration falls with size ───────────────────────
+function testDragBySize() {
+  console.log('BD. air drag: a small ball is held back, a big one of the same material ploughs');
+  reset({ gravity: false });
+  PHYS.drag = 0.05;
+  // Same material + launch speed, very different radii. Deceleration ∝ 1/(ρ·r):
+  // frontal exposure grows one power of r slower than mass.
+  const small = new Ball(100, 300, 8, MATERIALS.wood);  small.vx = 800;
+  const big   = new Ball(100, 500, 40, MATERIALS.wood); big.vx = 800;
+  balls.push(small, big);
+  run(120);                                    // 0.5 s of pure drag
+  ok(noNaN(), 'BD: no NaN');
+  ok(balls.includes(small) && balls.includes(big), 'BD: both balls still in play');
+  ok(big.vx > small.vx + 60,
+     `BD: the big ball kept far more speed (big ${big.vx.toFixed(0)} > small ${small.vx.toFixed(0)} + 60)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1397,5 +1414,6 @@ testMoltenGripSingleLaw();
 testHeatConductionRate();
 testFloatLineAtWaterDensity();
 testMagnusScaling();
+testDragBySize();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

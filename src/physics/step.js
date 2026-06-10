@@ -2,11 +2,12 @@
  * Fixed-timestep physics integration. Called by `loop.js` at 240 Hz via an
  * accumulator.
  *
- * Drag: `F_drag = (k_lin + k_quad · |v|) · A · v` where A = π·r². A larger
- * ball has more cross-section and feels more air resistance — small balls
- * dart, bowling balls plough.
+ * Drag: deceleration ∝ (k_lin + k_quad·|v|) / (ρ·r). Frontal exposure grows
+ * one power of r slower than mass, so small fragments flutter while boulders
+ * plough, and dense materials coast further than light ones at any size.
  *
- * Magnus: `F⊥ ∝ ω · v · A`. Same scaling — larger balls curve more.
+ * Magnus: sideways acceleration ∝ ω·v/ρ — radius-free (force and mass both
+ * scale with cross-section) and airborne-only (lift needs a free stream).
  *
  * Sleep: after `SLEEP_DELAY` seconds of resting motion under gravity, a
  * ball goes to sleep (skips integration + collision iteration). Any contact
@@ -314,22 +315,24 @@ export function physicsStep(dt) {
       if (dx * dx + dy * dy < 100 * 100) b.heat = Math.min(1, b.heat + dt * 3);
     }
 
-    // Drag is a force; the DECELERATION it produces is F/m. For our 2D disks
-    // A/m = πr²/(r²·ρ·k) ∝ 1/ρ — independent of radius, inversely proportional
-    // to density. So a dense ball (gold) coasts through air and a light one
-    // (wood, balloon) is held back, reaching a much lower terminal velocity —
-    // the real "a feather falls slower than a stone" behaviour. (ρ≈1 reproduces
-    // the old tuned default, so the PHYS.drag slider keeps its meaning.)
-    // Suppressed in N-body space (vacuum) so orbits don't slowly spiral in.
+    // Drag is a force; the DECELERATION it produces is F/m ∝ 1/(ρ·r) — the 2D
+    // and 3D treatments agree: frontal exposure grows one power of r slower
+    // than mass, so a dust-sized shard flutters where a boulder of the same
+    // material ploughs, and a dense ball (gold) coasts where a light one
+    // (wood, balloon) is held back — feather-vs-stone, at every size.
+    // (ρ≈1, r=20 reproduces the old tuned default, so the PHYS.drag slider
+    // keeps its meaning.) Suppressed in N-body space (vacuum) so orbits
+    // don't slowly spiral in.
     const vmag = len(b.vx, b.vy);
     if (!W.nbody) {
       // dragMul is the material's shape/Cd factor (a floppy balloon envelope
       // resists far more than a smooth sphere of the same density).
       const densityScale = (mat.dragMul ?? 1) / Math.max(0.05, mat.density);
-      const dragK = PHYS.drag * densityScale * (1 + vmag * 0.0018);
+      const sizeScale = 20 / Math.max(2, b.r);
+      const dragK = PHYS.drag * densityScale * sizeScale * (1 + vmag * 0.0018);
       const dragFactor = Math.max(0, 1 - dragK * dt);
       b.vx *= dragFactor; b.vy *= dragFactor;
-      b.omega *= Math.max(0, 1 - PHYS.drag * densityScale * dt * 0.8);
+      b.omega *= Math.max(0, 1 - PHYS.drag * densityScale * sizeScale * dt * 0.8);
     }
 
     // Magnus: the FORCE scales with the ball's cross-section (F⊥ ∝ ω·v·A) but
