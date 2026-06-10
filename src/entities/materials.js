@@ -21,7 +21,7 @@
  */
 
 /**
- * @typedef {'steel'|'rubber'|'glass'|'bowling'|'neon'|'gold'|'plasma'|'ice'|'magnet'|'mercury'|'diamond'|'obsidian'|'tnt'|'lava'|'rock'|'slime'|'wood'|'sand'|'balloon'|'antimatter'|'honey'|'water'} MaterialId
+ * @typedef {'steel'|'rubber'|'glass'|'bowling'|'neon'|'gold'|'plasma'|'ice'|'magnet'|'mercury'|'diamond'|'obsidian'|'tnt'|'lava'|'rock'|'slime'|'jelly'|'wood'|'sand'|'balloon'|'antimatter'|'honey'|'water'} MaterialId
  */
 
 /**
@@ -62,6 +62,11 @@
  * @property {number}  [lift]       — upward anti-gravity factor (helium balloon). Net lift = g·(1.4·lift − 1)
  * @property {boolean} [antimatter] — annihilates on contact with ordinary matter, releasing energy
  * @property {boolean} [fluidSim]   — particle-fluid: surface-tension cohesion + viscosity among like balls (water)
+ * @property {boolean} [soft]       — deformable soft body when built via buildSoftBall (inert for a plain disk)
+ * @property {number}  [softNodes]  — ring node count of the soft lattice
+ * @property {number}  [softStiff]  — perimeter spring stiffness (0..~1)
+ * @property {number}  [softPressure] — gas-pressure scale (area preservation)
+ * @property {number}  [softDamp]   — radial breathing damping (higher = settles faster, less wobble)
  */
 
 /** @type {Record<MaterialId, Material>} */
@@ -104,6 +109,9 @@ export const MATERIALS = {
   // the contacted ball (see `tryAdhere` in collisions). Bonds break above
   // a stretch + force threshold so a hard hit rips free. Translucent body.
   slime:   { name: 'SLIME',   color: '#7de65a', density: 0.95, restitution: 0.45, friction: 0.75, metallic: 0,    glow: 0.06, refract: 0.42, pitch: 340,  timbre: 'sine',     deform: 0.95, roll: 0.10,  heatKeep: 0.9950, cond: 0.10, bounceBack: 0.75, squashMax: 0.55, adhesive: true, ior: 1.4 },
+  // Jelly — a true deformable blob (soft-body lattice): flattens on impact,
+  // stores elastic energy in its shape, and wobbles back. Translucent, lively.
+  jelly:   { name: 'JELLY',   color: '#5ad0c8', density: 1.05, restitution: 0.55, friction: 0.50, metallic: 0,    glow: 0.08, refract: 0.30, pitch: 300,  timbre: 'sine',     deform: 0.95, roll: 0.08,  heatKeep: 0.9945, cond: 0.18, bounceBack: 0.85, squashMax: 0.55, soft: true, softNodes: 14, softStiff: 0.42, softPressure: 0.85, softDamp: 0.02, ior: 1.35 },
   // Wood — light enough to float (density < water = 1.0), matte, dead-ish
   // bounce, grippy. A dropped log bobs on the Water scene surface.
   wood:    { name: 'WOOD',    color: '#a9742f', density: 0.62, restitution: 0.42, friction: 0.62, metallic: 0,    glow: 0,    refract: 0,    pitch: 420,  timbre: 'triangle', deform: 0.25, roll: 0.06,  heatKeep: 0.9950, cond: 0.08, bounceBack: 0.18, hardness: 0.40 },

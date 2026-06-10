@@ -18,6 +18,7 @@ import { MATERIALS } from '../src/entities/materials.js';
 import { physicsStep } from '../src/physics/step.js';
 import { clearContactCache } from '../src/physics/contactSolver.js';
 import { NBODY_G } from '../src/physics/forces.js';
+import { buildSoftBall, softBodies, polyArea } from '../src/entities/softBody.js';
 
 const DT = 1 / 240;
 let passed = 0, failed = 0;
@@ -450,6 +451,63 @@ function testNoTunnelFast() {
   ok(totalKE() <= ke0 + 1e-6, `P: CCD bounce injected no KE (${totalKE().toFixed(0)} ≤ ${ke0.toFixed(0)})`);
 }
 
+// ───────────────────── T–X: soft bodies (deformable blobs) ─────────────────
+function dropJelly(R = 40) {
+  reset();
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  return buildSoftBall(W.cw / 2, W.ch * 0.4, R, MATERIALS.jelly);
+}
+function blobBBox(sb) {
+  let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+  for (const b of sb.nodes) { minx = Math.min(minx, b.x); maxx = Math.max(maxx, b.x); miny = Math.min(miny, b.y); maxy = Math.max(maxy, b.y); }
+  return { w: maxx - minx, h: maxy - miny };
+}
+function blobMaxSpeed(sb) { let m = 0; for (const b of sb.nodes) m = Math.max(m, Math.hypot(b.vx, b.vy)); return m; }
+
+function testSoftFlattenRecover() {
+  console.log('T. a soft blob flattens on impact then recovers its shape (real shape storage)');
+  const sb = dropJelly();
+  let peak = 0;
+  for (let i = 0; i < 240 * 3; i++) { physicsStep(DT); const bb = blobBBox(sb); peak = Math.max(peak, bb.w / Math.max(1, bb.h)); }
+  const e = blobBBox(sb); const endAspect = e.w / Math.max(1, e.h);
+  ok(noNaN(), 'T: no NaN');
+  ok(peak > 1.2, `T: blob flattened on impact (peak aspect ${peak.toFixed(2)} > 1.2 — a rigid disk can't)`);
+  // it springs back from the peak compression (a soft body still rests slightly
+  // domed under gravity, so it doesn't return to a perfect circle).
+  ok(endAspect < peak - 0.1, `T: blob recovered from peak compression (end ${endAspect.toFixed(2)} < peak ${peak.toFixed(2)})`);
+  ok(endAspect < 1.6, `T: blob isn't permanently pancaked (end aspect ${endAspect.toFixed(2)} < 1.6)`);
+}
+function testSoftSettles() {
+  console.log('U. a soft blob settles — dissipative, no runaway/jitter');
+  const sb = dropJelly();
+  run(240 * 6);
+  ok(noNaN(), 'U: no NaN');
+  ok(blobMaxSpeed(sb) < 30, `U: blob came to rest (node maxSpeed ${blobMaxSpeed(sb).toFixed(1)} < 30)`);
+}
+function testSoftAreaPreserved() {
+  console.log('V. a soft blob preserves its area (pressure constraint holds — no collapse/balloon)');
+  const sb = dropJelly();
+  let minA = 1e18, maxA = 0;
+  for (let i = 0; i < 240 * 4; i++) { physicsStep(DT); const a = Math.abs(polyArea(sb.nodes)); minA = Math.min(minA, a); maxA = Math.max(maxA, a); }
+  ok(noNaN(), 'V: no NaN');
+  ok(minA > sb.restArea * 0.4, `V: never collapsed (minArea ${minA.toFixed(0)} > ${(sb.restArea * 0.4).toFixed(0)})`);
+  ok(maxA < sb.restArea * 1.8, `V: never ballooned (maxArea ${maxA.toFixed(0)} < ${(sb.restArea * 1.8).toFixed(0)})`);
+}
+function testSoftDecay() {
+  console.log('X. a perturbed blob (no gravity) loses its motion — damping is genuinely dissipative');
+  reset({ gravity: false });
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const sb = buildSoftBall(W.cw / 2, W.ch / 2, 40, MATERIALS.jelly);
+  for (const b of sb.nodes) {                       // radial kick (breathing perturbation)
+    const rx = b.x - sb.center.x, ry = b.y - sb.center.y, rl = Math.hypot(rx, ry) || 1;
+    b.vx += rx / rl * 300; b.vy += ry / rl * 300;
+  }
+  run(240 * 5);
+  ok(noNaN(), 'X: no NaN');
+  ok(blobMaxSpeed(sb) < 25, `X: perturbation decayed to rest (node maxSpeed ${blobMaxSpeed(sb).toFixed(1)} < 25)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -471,5 +529,9 @@ testNoTunnelFast();
 testTerminalByDensity();
 testWaterEnergyBounded();
 testWaterSteadyState();
+testSoftFlattenRecover();
+testSoftSettles();
+testSoftAreaPreserved();
+testSoftDecay();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

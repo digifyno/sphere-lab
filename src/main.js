@@ -79,7 +79,7 @@ function init() {
   updatePauseBtn();
   updateSlowmoBtn();
   setTool('spawn');
-  loadScene('fluid');
+  loadScene('sandbox');
   startLoop();
 }
 

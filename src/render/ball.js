@@ -681,6 +681,9 @@ function drawFresnelRim(tx, b) {
 }
 
 export function drawBall(tx, b) {
+  // Soft-body nodes are not drawn individually — the blob is painted as one
+  // shape by drawSoftBodies.
+  if (b.isSoftNode) return;
   // Viewport cull — skip the entire ball render if clearly off-screen.
   // Saves gradient building, texture pattern transforms, path ops, and
   // per-material extras (cracks, dents, diamond sparks, etc.).

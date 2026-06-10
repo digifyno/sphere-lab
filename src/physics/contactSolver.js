@@ -86,6 +86,12 @@ export function solveBallContacts(dt, events) {
     // Two sleeping balls in contact are a settled island — skip entirely.
     if (a.sleeping && b.sleeping) continue;
 
+    // Nodes of the SAME soft body overlap by design (the perimeter is a closed
+    // ring of touching disks) — their shape is held by the soft springs, so the
+    // rigid solver must NOT fight them apart. No-op for non-soft balls (a.soft
+    // is undefined). Cross-body and node-vs-rigid contacts still resolve.
+    if (a.soft && a.soft === b.soft) continue;
+
     let dx = b.x - a.x, dy = b.y - a.y;
     const rsum = a.r + b.r;
     let d2 = dx * dx + dy * dy;

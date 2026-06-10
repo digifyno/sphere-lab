@@ -27,6 +27,8 @@ import { applyVortex, applySolar, applyBuoyancy, applyMagnetism, applyNbody, ste
 import { applySPH } from './sph.js';
 import { processTNT } from './tnt.js';
 import { breakSlimeBonds } from './adhesion.js';
+import { applySoftPressure } from './softForces.js';
+import { cullSoftBodies, softBodies } from '../entities/softBody.js';
 import { mouse } from '../input/mouse.js';
 import { getTool } from '../input/tools.js';
 
@@ -372,6 +374,11 @@ export function physicsStep(dt) {
     }
   }
 
+  // soft-body gas pressure — co-located with the springs (both act on the
+  // post-integration velocities before the rigid solve) so the shape constraint
+  // isn't split across the position integration.
+  applySoftPressure(dt);
+
   // springs + pendulum tethers — springs wake their endpoints
   const springIters = W.springs.length > 200 ? 3 : 6;
   for (let i = 0; i < springIters; i++) {
@@ -523,4 +530,8 @@ export function physicsStep(dt) {
       balls.splice(i, 1);
     }
   }
+
+  // A soft blob that lost a node (escaped/popped) is destroyed wholesale so no
+  // orphan nodes/springs linger.
+  if (softBodies.length) cullSoftBodies();
 }

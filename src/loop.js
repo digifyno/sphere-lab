@@ -25,6 +25,7 @@ import {
   drawVortex, drawWater, drawSolarCenter, drawBallShadows, drawFlippers
 } from './render/world.js';
 import { drawBall, drawTrail } from './render/ball.js';
+import { drawSoftBodies } from './render/softBody.js';
 import { drawAO, drawParticles, drawLensFlares, drawPlasmaArcs } from './render/effects.js';
 import { doBloomPass, doPostFX } from './render/postfx.js';
 import { renderSparkline } from './render/statsGraph.js';
@@ -132,6 +133,7 @@ function frame(now) {
   if (PHYS.trails) for (const b of balls) drawTrail(ctx, b);
   drawAO(ctx);
   for (const b of balls) if (!anyRefract || (b.mat.refract || 0) <= 0.3) drawBall(ctx, b);
+  drawSoftBodies(ctx);   // blobs painted as one shape (their nodes skip drawBall)
 
   if (anyRefract) {
     ctx.restore();

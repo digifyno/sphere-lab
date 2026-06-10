@@ -13,6 +13,7 @@ import { TAU, rand, len } from '../core/math.js';
 import { mix } from '../core/color.js';
 import { PHYS } from '../core/config.js';
 import { MATERIALS } from './materials.js';
+import { buildSoftBall } from './softBody.js';
 
 let BID = 0;
 
@@ -149,6 +150,15 @@ export const selectedMat = { id: /** @type {import('./materials.js').MaterialId}
 export function spawnBall(x, y) {
   if (balls.length >= 260) return null;
   const mat = MATERIALS[selectedMat.id];
+  // Soft materials (jelly) spawn as a deformable blob, not a single disk.
+  if (mat.soft) {
+    const sb = buildSoftBall(x, y, PHYS.spawnRadius, mat);
+    if (!sb) return null;
+    const vx = rand(-30, 30), vy = rand(-30, 30);
+    for (const nde of sb.nodes) { nde.vx = vx; nde.vy = vy; }
+    sb.center.vx = vx; sb.center.vy = vy;
+    return sb.center;
+  }
   const b = new Ball(x, y, PHYS.spawnRadius, mat);
   b.vx = rand(-30, 30); b.vy = rand(-30, 30);
   b.omega = rand(-2, 2);

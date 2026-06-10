@@ -4,6 +4,7 @@
 
 import { balls, wakeAll } from '../entities/ball.js';
 import { particles } from '../entities/particles.js';
+import { softBodies } from '../entities/softBody.js';
 import { PHYS } from './config.js';
 
 /**
@@ -75,6 +76,7 @@ export function addBox(x, y, w, h) {
 
 export function clearWorld() {
   balls.length = 0;
+  softBodies.length = 0;
   W.walls.length = 0;
   W.pegs.length = 0;
   W.constraints.length = 0;

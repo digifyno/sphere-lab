@@ -125,6 +125,7 @@ export function drawConstraints(tx) {
 
 export function drawSprings(tx) {
   for (const s of W.springs) {
+    if (s.tag === 'soft') continue;   // internal soft-body lattice — not drawn
     const dx = s.b.x - s.a.x, dy = s.b.y - s.a.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     const stretch = (d - s.rest) / s.rest;
@@ -265,6 +266,8 @@ export function drawBallShadows(tx) {
     // Viewport cull — shadows sit at the floor, so check horizontally
     // against the camera view. Saves the 3-layer ellipse stack per ball.
     if (!isBallOnScreen(b)) continue;
+    // a soft blob casts one shadow from its centre node, not 15 little ones
+    if (b.isSoftNode && !b.isSoftCenter) continue;
     // distance-based: the higher the ball, the wider + fainter the shadow
     const t = dist / 300;
     // Contact hardening: the penumbra collapses as the ball nears the floor —
