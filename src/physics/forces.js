@@ -102,7 +102,15 @@ export function applyBuoyancy(b, dt) {
  * Mutual attraction between magnetic balls. Called once per physics step from
  * `step.js`. Force is capped + softened at short range so magnet pairs don't
  * stick at infinite energy.
- *   F_on_a_toward_b = k / (d² + ε)   along the (b-a) axis.
+ *   F_on_a_toward_b = k · (m_a·m_b / m_ref²) / (d² + ε)   along the (b-a) axis.
+ *
+ * Magnetic moment scales with the magnet's VOLUME, so the pair force scales
+ * with the product of the two masses — two big magnets snap together hard,
+ * two small ones tug gently. (Without this, F was size-blind and a = F/m made
+ * SMALL magnets the violent ones — backwards.) Normalised to the MAGNETS
+ * scene's r=14 magnet so the stock scene keeps its tuned pull. The 1/r² range
+ * law is a deliberate stylisation (real dipoles fall off as 1/r⁴ — too
+ * short-range to read on screen).
  *
  * If `W.magnetic` is false (not in the MAGNETS scene), still works so the
  * user can drop magnet balls into any scene.
@@ -112,6 +120,7 @@ export function applyMagnetism(dt) {
   if (mags.length < 2) return;
   const k = 80000;
   const eps = 900;
+  const mRef = 14 * 14 * 7.5 * 0.001;          // the MAGNETS scene's r=14 magnet
   for (let i = 0; i < mags.length; i++) {
     const a = mags[i];
     for (let j = i + 1; j < mags.length; j++) {
@@ -126,8 +135,11 @@ export function applyMagnetism(dt) {
       // saved balls). Force sign reversal is the whole point of real magnets.
       const pa = a.polarity || 1;
       const pb = b.polarity || 1;
-      const f = (k / (d2 + eps)) * (-pa * pb);
-      if (Math.abs(f) > 30) { wake(a); wake(b); }
+      const moment = (a.mass * b.mass) / (mRef * mRef);
+      const f = (k * moment / (d2 + eps)) * (-pa * pb);
+      // wake on meaningful ACCELERATION, not raw force (a big magnet needs a
+      // proportionally bigger force to be disturbed)
+      if (Math.abs(f) > 10 * Math.min(a.mass, b.mass)) { wake(a); wake(b); }
       // Apply the force to each non-pinned partner. Pinned balls act as
       // anchors — they exert force on free partners but don't drift
       // themselves. Previously, a pinned `a` was skipped entirely,

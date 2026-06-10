@@ -1358,6 +1358,41 @@ function testDragBySize() {
      `BD: the big ball kept far more speed (big ${big.vx.toFixed(0)} > small ${small.vx.toFixed(0)} + 60)`);
 }
 
+// ───────────── BE: magnet pull scales with magnet size ─────────────────────
+function testMagnetSizeScaling() {
+  console.log('BE. two big magnets snap together harder than two small ones (moment ∝ volume)');
+  // Same surface gap, same initial drift (drifting keeps the pair clear of
+  // the rest-damp window so the field force is what we measure) — the extra
+  // closing speed the magnets ADD must grow steeply with size.
+  const magneticGain = (r) => {
+    reset({ gravity: false, drag: 0 });
+    const gap = 30;
+    const a = new Ball(600 - r - gap / 2, 400, r, MATERIALS.magnet);
+    const b = new Ball(600 + r + gap / 2, 400, r, MATERIALS.magnet);
+    a.polarity = 1; b.polarity = -1;           // opposite poles — attract
+    a.vx = 10; b.vx = -10;                     // drift together at 20 px/s
+    balls.push(a, b);
+    run(96);                                   // 0.4 s — well before contact
+    return (a.vx - b.vx) - 20;                 // closing speed gained from pull
+  };
+  const small = magneticGain(8);
+  const big = magneticGain(30);
+  ok(noNaN(), 'BE: no NaN');
+  ok(small > 0.5 && big > 0.5, `BE: both pairs attract (gain small ${small.toFixed(2)}, big ${big.toFixed(2)} px/s)`);
+  ok(big > small * 2,
+     `BE: the big pair pulls much harder (big ${big.toFixed(2)} > 2× small ${small.toFixed(2)})`);
+
+  // same poles repel — and never NaN at point-blank range
+  reset({ gravity: false, drag: 0 });
+  const a = new Ball(580, 400, 14, MATERIALS.magnet);
+  const b = new Ball(620, 400, 14, MATERIALS.magnet);
+  a.polarity = 1; b.polarity = 1;
+  balls.push(a, b);
+  run(240);
+  ok(noNaN(), 'BE: no NaN under repulsion');
+  ok(b.vx - a.vx > 0, `BE: like poles repel (separating at ${(b.vx - a.vx).toFixed(2)} px/s)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1415,5 +1450,6 @@ testHeatConductionRate();
 testFloatLineAtWaterDensity();
 testMagnusScaling();
 testDragBySize();
+testMagnetSizeScaling();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }
