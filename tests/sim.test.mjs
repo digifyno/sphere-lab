@@ -14,6 +14,7 @@ import './shim.mjs';
 import { W, addBox, clearWorld } from '../src/core/world.js';
 import { PHYS } from '../src/core/config.js';
 import { balls, Ball, wake, kickBall } from '../src/entities/ball.js';
+import { Spring } from '../src/entities/spring.js';
 import { MATERIALS } from '../src/entities/materials.js';
 import { physicsStep } from '../src/physics/step.js';
 import { clearContactCache } from '../src/physics/contactSolver.js';
@@ -1177,6 +1178,75 @@ function testSoftNodeRenderHygiene() {
   ok(ribbons === 0, `AW: hidden lattice nodes record no trail ribbons (${ribbons} did)`);
 }
 
+// ───────────────── AX–AZ: review-pass regressions (death side-effects) ─────
+function testShatterWakesSleepers() {
+  console.log('AX. shattering a support wakes the sleepers resting on it — no mid-air freezes');
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const floorY = W.ch - pad;
+  const support = new Ball(W.cw / 2, floorY - 40, 40, MATERIALS.glass);
+  const sleeper = new Ball(W.cw / 2, floorY - 80 - 12, 12, MATERIALS.steel);
+  balls.push(support, sleeper);
+  run(240 * 3);                                  // settle until both sleep
+  ok(sleeper.sleeping, 'AX: the stacked ball fell asleep on its glass support');
+  const slug = new Ball(200, support.y, 24, MATERIALS.steel);
+  slug.vx = 750;                                 // above the energy criterion for r=40 glass
+  balls.push(slug);
+  let shattered = false;
+  for (let i = 0; i < 240 * 2; i++) {
+    physicsStep(DT);
+    if (!balls.includes(support)) { shattered = true; break; }
+  }
+  ok(shattered, 'AX: the support shattered');
+  run(240);
+  ok(noNaN(), 'AX: no NaN');
+  ok(sleeper.y > floorY - 80,
+     `AX: the sleeper fell when its support vanished (y=${sleeper.y.toFixed(0)}) instead of freezing mid-air`);
+}
+
+function testDeadBallDropsSprings() {
+  console.log('AY. springs to a destroyed ball are removed — no tugging on corpses');
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const anchor = new Ball(W.cw / 2 - 60, 200, 16, MATERIALS.steel);
+  const merc = new Ball(W.cw / 2 + 60, W.ch - pad - 300, 20, MATERIALS.mercury);
+  merc.vy = 800;                                  // will splash-split on the floor
+  balls.push(anchor, merc);
+  W.springs.push(new Spring(anchor, merc, 120, 0.6, 0.1));   // user Link-tool spring
+  run(240 * 1.5);
+  ok(noNaN(), 'AY: no NaN');
+  ok(!balls.includes(merc), 'AY: the mercury blob split (died)');
+  ok(W.springs.every(s => balls.includes(s.a) && balls.includes(s.b)),
+     'AY: no spring references a ball that left the pool');
+}
+
+function testMoltenGripSingleLaw() {
+  console.log('AZ. lava grips as it cools — one law, sane magnitudes on the wall path');
+  const pad = 40;
+  const slideDistance = (heat) => {
+    reset();
+    addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+    const b = new Ball(150, W.ch - pad - 20, 20, MATERIALS.lava);
+    b.heat = heat; b.vx = 500;
+    b.inertia = 1e12;            // rotation-locked: isolate sliding friction
+    balls.push(b);
+    const x0 = b.x;
+    for (let i = 0; i < 240 * 3; i++) {
+      physicsStep(DT);
+      b.heat = heat;             // hold heat fixed — we probe μ(heat), not cooling
+      if (Math.abs(b.vx) < 30) break;
+    }
+    return b.x - x0;
+  };
+  const hot = slideDistance(1.0);
+  const crusted = slideDistance(0.12);
+  ok(noNaN(), 'AZ: no NaN');
+  ok(hot > crusted * 1.3,
+     `AZ: molten lava slides farther than crusted (hot ${hot.toFixed(0)} px vs crusted ${crusted.toFixed(0)} px)`);
+  ok(crusted > 40,
+     `AZ: crusted lava still slides somewhat (${crusted.toFixed(0)} px > 40) — grip isn't double-counted into weld`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1227,5 +1297,8 @@ testBlobHitTest();
 testBlobSaveLoad();
 testBlobTeardown();
 testSoftNodeRenderHygiene();
+testShatterWakesSleepers();
+testDeadBallDropsSprings();
+testMoltenGripSingleLaw();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

@@ -142,6 +142,19 @@ export function wakeAll() {
   for (const b of balls) wake(b);
 }
 
+/** Wake sleepers within `r` of a point. Call when something is STRUCTURALLY
+ *  removed (merge / fracture / annihilation / melt / pop) — it can pull the
+ *  support out from under a sleeping ball, which must fall instead of
+ *  hanging frozen in mid-air. */
+export function wakeNear(x, y, r) {
+  const r2 = r * r;
+  for (const o of balls) {
+    if (!o.sleeping) continue;
+    const dx = o.x - x, dy = o.y - y;
+    if (dx * dx + dy * dy < r2) wake(o);
+  }
+}
+
 /** Launch a ball — or, when the handle is a soft-body node (what spawnBall
  *  returns for soft materials), the WHOLE blob. A blob's mass is split
  *  across N ring nodes, so kicking the single returned node gives the body

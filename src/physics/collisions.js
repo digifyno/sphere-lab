@@ -466,11 +466,12 @@ export function collideWall(b, wall) {
   const restFactor = Math.abs(vn) < 80 ? 1.6 : 1;
   // Sticky/viscous liquids have much higher effective friction on walls, so
   // they cling before sliding off. `cling` is the explicit per-material knob
-  // (honey); merge-fluids (mercury, lava) default to 2.6 — except molten lava,
-  // whose grip grows as it cools and crusts (runny hot → tacky cold).
-  const fluidPull = b.mat.cling
-    ?? (b.mat.molten ? 1.4 + (1 - b.heat) * 2
-      : b.mat.fluid ? 2.6 : 1);
+  // (honey); merge-fluids (mercury, lava) default to 2.6. Heat-dependence
+  // ("runny hot → tacky as the crust forms") lives SOLELY in heatFricMod's
+  // molten branch — it already multiplies in below, and a second ramp here
+  // compounded into a ~5× weld for crusted lava while ball-ball contacts
+  // only saw the single law.
+  const fluidPull = b.mat.cling ?? (b.mat.fluid ? 2.6 : 1);
   const mu = b.mat.friction * PHYS.frictionMul * heatFricMod(b) * restFactor * fluidPull
            * anisoFric(b, tx, ty);
   const denom = 1 + b.r * b.r / b.inertia * b.mass;

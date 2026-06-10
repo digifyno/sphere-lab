@@ -123,8 +123,8 @@ constant, that test is the contract.
 | Magnet   | 7.5     | 0.62   | 0.42     | Mutual `1/r²` attraction (NdFeB density) |
 | Mercury  | 13.55   | 0.22   | 0.08     | `fluid=true` — merges with other mercury at low relative speed |
 | Wood     | 0.62    | 0.42   | 0.62     | Floats (ρ < water); anisotropic — slides easier along its grain (`fricAniso`) |
-| Sand     | 2.65    | 0.14   | 0.70     | Granular quartz grains — interlock (`roll=0.8` + solver rolling moment) heaps at repose |
-| Balloon  | 0.16    | 0.74   | 0.65     | `lift=1` rises; a membrane — `pops` on slams (>520 px/s), hot or sharp contact |
+| Sand     | 2.65    | 0.14   | 0.70     | `granular` quartz grains — interlock + solver rolling moment, heaps at repose |
+| Balloon  | 0.16    | 0.74   | 0.65     | `lift=1` rises (`dragMul=2` caps rise below `popV`); a membrane — `pops` on slams (>520 px/s), hot or sharp contact |
 | Antimatter | 1.0   | 0.50   | 0.20     | `antimatter` — annihilates ordinary matter on contact |
 | Honey    | 1.42    | 0.05   | 0.85     | `fluidSim` at 7× water's viscosity (`sphVisc`) — oozes, `cling`s to walls |
 | Water    | 1.0     | 0.04   | 0.02     | `fluidSim=true` — particle fluid: cohesion + viscosity, flows + levels |
@@ -203,9 +203,11 @@ Key behaviours:
   between the slip tangent and the grain axis (rotates with the ball; same
   axis as the brushed highlight). Slides ~45 % easier along the grain.
 - **Granular contacts get a rolling-resistance moment** in the solver: capped
-  by `μr·Pₙ·r` (DEM rolling friction) for pairs where both `roll ≥ 0.2`, plus
-  an impact-gated interlock (μ×2.2 on genuine hits) — round disks otherwise
-  skate/roll and a sand pile can't hold its angle of repose.
+  by `μr·Pₙ·r` (DEM rolling friction) for pairs where both have the explicit
+  `mat.granular` flag (`roll` supplies μr but is a damping coefficient — honey's
+  0.25 must not inherit sand physics), plus an impact-gated interlock (μ×2.2 on
+  genuine hits) — round disks otherwise skate/roll and a sand pile can't hold
+  its angle of repose.
 - **Static friction is cone-aware** (`step.js`): the low-speed stick only
   holds while `|nx| ≤ μ·|ny|` — on steeper contacts gravity wins and the ball
   keeps sliding (this is what stops sand welding into vertical towers).

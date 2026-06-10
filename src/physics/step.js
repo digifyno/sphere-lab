@@ -16,7 +16,7 @@
 import { W } from '../core/world.js';
 import { PHYS } from '../core/config.js';
 import { clamp, lerp, len, rand, pick } from '../core/math.js';
-import { balls, Ball, wake, SLEEP_DELAY, SLEEP_V, SLEEP_W } from '../entities/ball.js';
+import { balls, Ball, wake, wakeNear, SLEEP_DELAY, SLEEP_V, SLEEP_W } from '../entities/ball.js';
 import { MATERIALS, MAT_KEYS } from '../entities/materials.js';
 import { particles, spawnHeatShimmer, spawnSmoke, spawnSparkle, spawnChip } from '../entities/particles.js';
 import { Snd } from '../audio/sound.js';
@@ -531,21 +531,27 @@ export function physicsStep(dt) {
     const b = balls[i];
     const escaped = b.x < -800 || b.x > W.cw + 800 || b.y > W.ch + 600 || b.y < -500;
     if (b._dead || escaped) {
-      // Structural removal (merge / fracture / annihilation / melt) can pull the
-      // support out from under a sleeping ball — wake nearby sleepers so they
-      // fall instead of hanging frozen in mid-air. (Off-screen escapes skip
-      // this: nothing meaningful rests on a ball already out of bounds.)
-      if (b._dead) {
-        const wr2 = (b.r + 50) * (b.r + 50);
-        for (let k = 0; k < balls.length; k++) {
-          const o = balls[k];
-          if (o === b || !o.sleeping) continue;
-          const dx = o.x - b.x, dy = o.y - b.y;
-          if (dx * dx + dy * dy < wr2) wake(o);
-        }
-      }
+      // Structural removal (merge / fracture / annihilation / melt / pop) can
+      // pull the support out from under a sleeping ball — wake nearby sleepers
+      // so they fall instead of hanging frozen in mid-air. (Off-screen escapes
+      // skip this: nothing meaningful rests on a ball already out of bounds.)
+      if (b._dead) wakeNear(b.x, b.y, b.r + 50);
+      // Flag escapes too: the spring sweep below and cullSoftBodies both key
+      // off `_dead` to find references to balls that left the pool.
+      b._dead = true;
       balls.splice(i, 1);
     }
+  }
+
+  // Springs / tethers whose endpoint died keep pulling their live partner
+  // toward the corpse's frozen position (a popped balloon, split mercury,
+  // shattered glass — the Spring still holds the object). Drop them.
+  for (let i = W.springs.length - 1; i >= 0; i--) {
+    const s = W.springs[i];
+    if (s.a._dead || s.b._dead) W.springs.splice(i, 1);
+  }
+  for (let i = W.constraints.length - 1; i >= 0; i--) {
+    if (W.constraints[i].a?._dead) W.constraints.splice(i, 1);
   }
 
   // A soft blob that lost a node (escaped/popped) is destroyed wholesale so no

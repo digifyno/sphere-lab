@@ -23,7 +23,7 @@
  */
 
 import { TAU, rand } from '../core/math.js';
-import { balls, Ball } from '../entities/ball.js';
+import { balls, Ball, wakeNear } from '../entities/ball.js';
 import { spawnShard } from '../entities/particles.js';
 import { Snd } from '../audio/sound.js';
 
@@ -136,7 +136,11 @@ function shatter(b, impactV) {
   // remove the original. Mark `_dead` first (the tryFracture guard + step.js
   // cleanup both key off it) so a second contact this step can't re-shatter it;
   // the immediate splice keeps the collideWall/collidePeg return contract.
+  // Because of that splice, step.js's dead-ball wake pass never sees a
+  // fractured ball — wake the neighbourhood here, or a sleeper stacked on
+  // the shattered support hangs frozen in mid-air.
   b._dead = true;
+  wakeNear(b.x, b.y, b.r + 50);
   const idx = balls.indexOf(b);
   if (idx >= 0) balls.splice(idx, 1);
 }
