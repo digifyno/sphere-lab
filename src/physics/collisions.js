@@ -322,8 +322,9 @@ function annihilate(a, b) {
  * (sparks, sound, fracture, TNT, slime — only on genuine hits).
  *
  * @param {{a, b, nx:number, ny:number, e:number, pt:number, vnInit:number, invSum:number}} c
+ * @param {number} [dt] — physics timestep (continuous effects scale with it)
  */
-export function ballContactEvent(c) {
+export function ballContactEvent(c, dt = 1 / 240) {
   const a = c.a, b = c.b;
 
   // Matter + antimatter annihilate the instant they touch — at any speed.
@@ -335,9 +336,13 @@ export function ballContactEvent(c) {
   // ---- continuous: every frame the contact exists ----
   // heat conduction — hotter body bleeds into colder, scaled by the product
   // of conductivities (metal↔metal fast, insulator↔insulator negligible).
+  // Scaled by dt so the rate is per-SECOND, not per-tick: the temperature gap
+  // relaxes at 2·condA·condB per second (τ ≈ 0.6 s for a steel pair, minutes
+  // for insulators). The old per-tick 0.22 equalised any pair in ~10 ms at
+  // 240 Hz — touching lava maxed a neighbour's heat the same frame.
   const dh = b.heat - a.heat;
   if (Math.abs(dh) > 0.01) {
-    const flow = dh * (a.mat.cond ?? 0.3) * (b.mat.cond ?? 0.3) * 0.22;
+    const flow = dh * (a.mat.cond ?? 0.3) * (b.mat.cond ?? 0.3) * dt;
     a.heat = clamp(a.heat + flow, 0, 1);
     b.heat = clamp(b.heat - flow, 0, 1);
   }

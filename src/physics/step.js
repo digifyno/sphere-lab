@@ -426,7 +426,7 @@ export function physicsStep(dt) {
   applySPH(dt);
 
   if (balls.length > 0) {
-    solveBallContacts(dt, { merge: tryFluidMerge, contact: ballContactEvent });
+    solveBallContacts(dt, { merge: tryFluidMerge, contact: c => ballContactEvent(c, dt) });
   }
 
   // sleep bookkeeping — must come AFTER integration + solver

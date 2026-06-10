@@ -1247,6 +1247,47 @@ function testMoltenGripSingleLaw() {
      `AZ: crusted lava still slides somewhat (${crusted.toFixed(0)} px > 40) — grip isn't double-counted into weld`);
 }
 
+// ───────────── BA: heat conducts over seconds, not instantly ───────────────
+function testHeatConductionRate() {
+  console.log('BA. contact heat conduction is gradual, conservative, and conductivity-ordered');
+  // hot ball on the floor, cold ball stacked on top — gravity keeps the
+  // contact alive, and the heat-shimmer wake keeps the hot ball awake so the
+  // contact event (where conduction lives) fires every step.
+  const stack = (matK) => {
+    reset();
+    PHYS.heatFx = true;
+    const pad = 40;
+    addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+    const floorY = W.ch - pad;
+    const hot = new Ball(600, floorY - 20, 20, MATERIALS[matK]);
+    const cold = new Ball(600, floorY - 60, 20, MATERIALS[matK]);
+    hot.heat = 1.0;
+    balls.push(hot, cold);
+    return { hot, cold };
+  };
+
+  const s = stack('steel');
+  const total0 = s.hot.heat + s.cold.heat;
+  run(24);                                     // 0.1 s of contact
+  ok(noNaN(), 'BA: no NaN');
+  ok(s.hot.heat - s.cold.heat > 0.5,
+     `BA: after 0.1 s a steel pair is still far from equilibrium (Δ=${(s.hot.heat - s.cold.heat).toFixed(2)} > 0.5)`);
+  ok(s.cold.heat > 0.02,
+     `BA: but heat IS flowing (cold side at ${s.cold.heat.toFixed(3)} > 0.02)`);
+  // conduction is symmetric — it can move heat, never mint it (heatKeep only decays)
+  ok(s.hot.heat + s.cold.heat <= total0 + 1e-6,
+     `BA: conduction never creates heat (${(s.hot.heat + s.cold.heat).toFixed(3)} ≤ ${total0.toFixed(3)})`);
+  run(240 * 3);                                // 3 more seconds in contact
+  ok(Math.abs(s.hot.heat - s.cold.heat) < 0.15,
+     `BA: a steel pair has nearly equalised after ~3 s (Δ=${Math.abs(s.hot.heat - s.cold.heat).toFixed(3)} < 0.15)`);
+
+  // insulator pair (rubber·rubber, cond 0.05²) — conduction is negligible
+  const r = stack('rubber');
+  run(24);
+  ok(r.cold.heat < 0.01,
+     `BA: rubber insulates — cold side barely warms in 0.1 s (${r.cold.heat.toFixed(4)} < 0.01)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1300,5 +1341,6 @@ testSoftNodeRenderHygiene();
 testShatterWakesSleepers();
 testDeadBallDropsSprings();
 testMoltenGripSingleLaw();
+testHeatConductionRate();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }
