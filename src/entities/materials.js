@@ -126,7 +126,7 @@ export const MATERIALS = {
   // Sand — granular grain. Almost no bounce, very high friction, heavy rolling
   // resistance: a pile of sand grains heaps and holds a slope (the warm-started
   // solver makes the granular pile actually stable instead of jittering apart).
-  sand:    { name: 'SAND',    color: '#d8c084', density: 2.65, restitution: 0.14, friction: 0.95, metallic: 0,    glow: 0,    refract: 0,    pitch: 240,  timbre: 'square',   deform: 0.12, roll: 0.42,  heatKeep: 0.9955, cond: 0.20, bounceBack: 0.05, hardness: 0.30 },
+  sand:    { name: 'SAND',    color: '#d8c084', density: 2.65, restitution: 0.14, friction: 0.70, metallic: 0,    glow: 0,    refract: 0,    pitch: 240,  timbre: 'square',   deform: 0.12, roll: 0.80,  heatKeep: 0.9955, cond: 0.20, bounceBack: 0.05, hardness: 0.30 },
   // Balloon — helium-light. `lift` overcomes gravity so it rises, bobs, and
   // collects against the ceiling; soft and very bouncy.
   balloon: { name: 'BALLOON', color: '#ff5da2', density: 0.16, restitution: 0.74, friction: 0.65, metallic: 0,    glow: 0.08, refract: 0,    pitch: 620,  timbre: 'sine',     deform: 0.70, roll: 0.12,  heatKeep: 0.9920, cond: 0.04, bounceBack: 0.70, squashMax: 0.50, lift: 1 },

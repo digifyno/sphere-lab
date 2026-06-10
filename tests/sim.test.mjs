@@ -37,7 +37,7 @@ function reset(opts = {}) {
   PHYS.gravity = 900;
   PHYS.drag = opts.drag ?? 0.05;
   PHYS.magnus = 0.6; PHYS.wind = 0;
-  PHYS.restitutionMul = 1; PHYS.frictionMul = 0.5;
+  PHYS.restitutionMul = 1; PHYS.frictionMul = 1;
   PHYS.slowmo = 1; PHYS.paused = false;
   PHYS.solverVel = 8; PHYS.solverPos = 3; PHYS.warmStart = true;
 }
@@ -604,8 +604,10 @@ function testMaterialOrderings() {
   gt('honey', 'water', 'density');
   ok(Math.abs(M.tnt.density - 1.65) < 0.15, `AA: TNT at its real 1.65 (${M.tnt.density})`);
 
-  // friction — granular interlock > tyre rubber > metals > smooth > lubricated
-  gt('sand', 'rubber', 'friction');
+  // friction — tyre rubber grips hardest (sand's identity is interlock —
+  // `roll` + the impact-gated granular catch — not surface grip)
+  gt('rubber', 'sand', 'friction');
+  gt('sand', 'steel', 'friction');
   gt('rubber', 'wood', 'friction');
   gt('wood', 'steel', 'friction');
   gt('steel', 'glass', 'friction');
@@ -760,6 +762,70 @@ function testFractureRealism() {
   ok(wallHit(MATERIALS.diamond, 1800) === 1, 'AE: diamond survives a 1800 px/s slam');
 }
 
+// ───────────────── AF: granular slope stability (angle of repose) ───────────
+// Deterministic bounds instead of a chaotic pour: a 30° pile must HOLD (the
+// repose lower bound), a near-vertical wall must SLUMP, and interlocking
+// grains must hold far steeper rubble than rounded boulders.
+function heapStats(r) {
+  const floorY = W.ch - 40, mid = W.cw / 2;
+  let minY = 1e9;
+  for (const b of balls) minY = Math.min(minY, b.y - b.r);
+  const dx = balls.map(b => Math.abs(b.x - mid)).sort((a, b) => a - b);
+  const halfW = dx[Math.floor(dx.length * 0.95)] + r;
+  const h = floorY - minY;
+  return { h, angle: Math.atan2(h, halfW) * 180 / Math.PI };
+}
+function buildPyramid(mat, r, baseN, insetPerLayer) {
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const floorY = W.ch - pad, mid = W.cw / 2;
+  for (let j = 0; ; j++) {
+    const n = baseN - Math.round(j * 2 * insetPerLayer);
+    if (n < 1) break;
+    for (let i = 0; i < n; i++) {
+      balls.push(new Ball(mid + (i - (n - 1) / 2) * 2 * r, floorY - r - j * 2 * r * 0.866, r, mat));
+    }
+  }
+}
+function buildTower(mat, r) {
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const floorY = W.ch - pad, mid = W.cw / 2;
+  for (let j = 0; j < 12; j++) for (let i = 0; i < 3; i++) {
+    balls.push(new Ball(mid + (i - 1) * 2 * r + (j % 2) * 3, floorY - r - j * 2 * r * 0.93, r, mat));
+  }
+}
+
+function testAngleOfRepose() {
+  console.log('AF. sand holds a 30° pile, towers slump; boulders scatter where grains interlock');
+  // 30° pyramid (the real repose band's lower edge) must stand
+  buildPyramid(MATERIALS.sand, 7, 21, 1.5);
+  const p0 = heapStats(7);
+  run(240 * 4);
+  const p1 = heapStats(7);
+  ok(noNaN(), 'AF: no NaN');
+  ok(p1.h > p0.h * 0.88,
+     `AF: a 30° sand pile holds (height ${p0.h.toFixed(0)} → ${p1.h.toFixed(0)})`);
+
+  // a near-vertical sand wall cannot stand — it must slump toward repose
+  buildTower(MATERIALS.sand, 7);
+  const t0 = heapStats(7);
+  run(240 * 4);
+  const sandTower = heapStats(7);
+  ok(sandTower.angle < t0.angle - 12,
+     `AF: a sand tower slumps (${t0.angle.toFixed(0)}° → ${sandTower.angle.toFixed(0)}°)`);
+
+  // rounded boulders don't interlock: the same tower scatters nearly flat,
+  // far below what angular sand rubble holds
+  buildTower(MATERIALS.rock, 7);
+  run(240 * 4);
+  const rockTower = heapStats(7);
+  ok(rockTower.angle < 20,
+     `AF: a boulder tower scatters flat (${rockTower.angle.toFixed(0)}° < 20°)`);
+  ok(sandTower.angle > rockTower.angle + 20,
+     `AF: interlocking grains hold steeper rubble than round boulders (sand ${sandTower.angle.toFixed(0)}° vs rock ${rockTower.angle.toFixed(0)}°)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -793,5 +859,6 @@ testMercurySplash();
 testHoneyVsWater();
 testLavaCoolsStiff();
 testFractureRealism();
+testAngleOfRepose();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

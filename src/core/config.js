@@ -32,7 +32,10 @@
 
 /** @type {PhysConfig} */
 export const PHYS = {
-  gravity: 900, drag: 0.05, restitutionMul: 1.0, frictionMul: 0.5, magnus: 0.6, wind: 0,
+  // frictionMul 1.0 = the materials' real-world friction coefficients act
+  // unscaled; the slider is a multiplier around physical truth, not a hidden
+  // 0.5 haircut.
+  gravity: 900, drag: 0.05, restitutionMul: 1.0, frictionMul: 1.0, magnus: 0.6, wind: 0,
   spawnRadius: 20,
   gravityOn: true, slowmo: 1, paused: false,
   solverVel: 8, solverPos: 3, warmStart: true,

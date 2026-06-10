@@ -221,10 +221,15 @@ export function physicsStep(dt) {
       // the ball to rest on the surface. Prevents endless creep on slight
       // slopes and fixes the "ball almost stopped but doesn't quite" case.
       // Threshold scales with friction coefficient (grippy materials stick
-      // at higher speeds).
+      // at higher speeds). But static friction can only hold INSIDE the
+      // friction cone: on a contact steeper than atan(μ), gravity beats the
+      // maximum static force and the ball must keep sliding — without this,
+      // grains weld onto absurd slopes and sand piles into vertical towers.
       const staticThresh = 2.5 + (mat.friction || 0.3) * 14;
       const vtMag = Math.sqrt(vtx * vtx + vty * vty);
-      if (vtMag < staticThresh && Math.abs(b.omega) < 1.3) {
+      const withinCone = !PHYS.gravityOn ||
+        Math.abs(b.contactNx) <= (mat.friction + 0.08) * Math.abs(b.contactNy);
+      if (vtMag < staticThresh && Math.abs(b.omega) < 1.3 && withinCone) {
         b.vx = vn * nx;
         b.vy = vn * ny;
         b.omega *= 0.5;

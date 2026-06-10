@@ -178,8 +178,14 @@ export function solveBallContacts(dt, events) {
     // bouncy walls) live in collisions.js / flippers.js and stay uncapped.
     const e = Math.min(1, baseE * PHYS.restitutionMul * matVelRestScale(approach, softer)
             * heatRestMod(a) * heatRestMod(b));
-    const mu = combineFriction(a.mat.friction, b.mat.friction) * PHYS.frictionMul
+    let mu = combineFriction(a.mat.friction, b.mat.friction) * PHYS.frictionMul
              * heatFricMod(a) * heatFricMod(b);
+    // Granular interlock: angular grains CATCH each other at impact far beyond
+    // their smooth-surface friction (asperities bite), while their static cone
+    // stays moderate. Round disks otherwise skate around each other and a pile
+    // can't hold its angle of repose. Impact-gated so resting piles keep the
+    // honest static μ.
+    if (impact && (a.mat.roll ?? 0) >= 0.2 && (b.mat.roll ?? 0) >= 0.2) mu *= 2.2;
 
     const angA = aDyn ? a.r * a.r / a.inertia : 0;
     const angB = bDyn ? b.r * b.r / b.inertia : 0;
@@ -266,6 +272,27 @@ export function solveBallContacts(dt, events) {
       dpt = pt - c.pt; c.pt = pt;
       if (c.aDyn) { a.vx -= dpt * c.tx * c.invMa; a.vy -= dpt * c.ty * c.invMa; a.omega -= dpt * a.r / a.inertia; }
       if (c.bDyn) { b.vx += dpt * c.tx * c.invMb; b.vy += dpt * c.ty * c.invMb; b.omega -= dpt * b.r / b.inertia; }
+    }
+  }
+
+  // --- rolling resistance (granular contacts) ---
+  // A contact resists relative ROLLING with a moment capped by μr·Pₙ·r —
+  // the angular analogue of the Coulomb cone (standard DEM rolling friction).
+  // Sliding friction can't do this: its torque *drives* rolling. This is what
+  // lets round grains stand in for angular sand — a heap holds its slope
+  // instead of every grain slowly rolling downhill. Strictly dissipative
+  // (drives ω toward 0, never past it). Only granular pairs (both roll ≥ 0.2).
+  for (let i = 0; i < contacts.length; i++) {
+    const c = contacts[i];
+    const mr = Math.min(c.a.mat.roll ?? 0, c.b.mat.roll ?? 0);
+    if (mr < 0.2 || c.pn <= 0) continue;
+    if (c.aDyn) {
+      const a = c.a, cap = mr * c.pn * a.r / a.inertia;
+      a.omega -= clampv(a.omega, -cap, cap);
+    }
+    if (c.bDyn) {
+      const b = c.b, cap = mr * c.pn * b.r / b.inertia;
+      b.omega -= clampv(b.omega, -cap, cap);
     }
   }
 
