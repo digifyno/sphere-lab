@@ -27,7 +27,8 @@ import { balls, wake } from '../entities/ball.js';
 const PBF_ITERS = 3;
 /** Constraint-force-mixing — regularises λ so the denominator is never ~0. */
 const EPS_CFM = 100;
-/** XSPH viscosity strength (strictly dissipative). */
+/** Default XSPH viscosity (water). Materials override via `sphVisc` —
+ *  honey runs ~7× thicker. Strictly dissipative at any value ≤ 1. */
 const VISC = 0.08;
 /** Anti-clustering surface tension (Macklin s_corr). */
 const SCORR_K = 0.0009, SCORR_N = 4, SCORR_DQ = 0.2;
@@ -57,30 +58,42 @@ function setH(pr) {
   lastR = pr;
 }
 
-const fp = [];                 // water particles this step (reused)
 const nb = [];                 // nb[i] = flat [j0,r0, j1,r1, ...] (reused)
 const grid = new Map();
+const groups = new Map();      // material name → its drops (honey ≠ water)
 const key = (cx, cy) => cx + ':' + cy;
 
 /** Drop neighbour scratch on scene load (defensive; rebuilt every step). */
-export function clearSPH() { fp.length = 0; nb.length = 0; grid.clear(); }
+export function clearSPH() { nb.length = 0; grid.clear(); groups.clear(); }
 
 /**
- * Apply PBF density projection + viscosity + surface tension to water drops.
+ * Apply PBF density projection + viscosity + surface tension to every
+ * `fluidSim` material. Each material is its own fluid — separate neighbour
+ * group and its own rheology (`sphVisc`), so honey and water coexist as
+ * genuinely different liquids.
  * @param {number} dt
  */
 export function applySPH(dt) {
-  fp.length = 0;
-  let pr = 0;
+  groups.clear();
   for (let i = 0; i < balls.length; i++) {
     const b = balls[i];
     if (!b.mat.fluidSim || b.pinned) continue;
-    fp.push(b);
-    pr = b.r;
+    let g = groups.get(b.mat.name);
+    if (!g) { g = []; groups.set(b.mat.name, g); }
+    g.push(b);
     b._sxT = b.x; b._syT = b.y;          // post-integration snapshot (additive-Δv base)
   }
+  for (const g of groups.values()) {
+    if (g.length >= 2) solveGroup(g, dt);
+  }
+}
+
+/** One material's drops: density projection + XSPH viscosity at its own
+ *  `sphVisc` (water ≈ thin, honey ≈ thick). */
+function solveGroup(fp, dt) {
   const n = fp.length;
-  if (n < 2) return;
+  const pr = fp[n - 1].r;
+  const visc = fp[0].mat.sphVisc ?? VISC;
   if (pr !== lastR) setH(pr);
 
   // --- dedicated grid (cell = H) + symmetric neighbour lists (3×3 scan) ---
@@ -173,6 +186,6 @@ export function applySPH(dt) {
       const wv = poly6(r * r);
       ax += (o.vx - a.vx) * wv; ay += (o.vy - a.vy) * wv;
     }
-    a.vx += VISC * ax / REST_RHO; a.vy += VISC * ay / REST_RHO;
+    a.vx += visc * ax / REST_RHO; a.vy += visc * ay / REST_RHO;
   }
 }

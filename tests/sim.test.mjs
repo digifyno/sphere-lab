@@ -614,6 +614,80 @@ function testMaterialOrderings() {
   ok(M.mercury.friction < 0.1, 'AA: mercury slides like the liquid it is');
 }
 
+// ───────────────── AB–AD: fluid rheology (mercury / honey / lava) ──────────
+function testMercurySplash() {
+  console.log('AB. a slammed mercury blob splits into beads, conserving area');
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const m = new Ball(W.cw / 2, W.ch - pad - 300, 20, MATERIALS.mercury);
+  m.vy = 800;                                   // slam it into the floor
+  balls.push(m);
+  const area0 = m.r * m.r;
+  run(240 * 1.5);
+  const beads = balls.filter(b => b.mat.name === 'MERCURY');
+  const area1 = beads.reduce((s, b) => s + b.r * b.r, 0);
+  ok(noNaN(), 'AB: no NaN');
+  ok(beads.length > 1, `AB: blob splashed into beads (${beads.length} > 1)`);
+  ok(Math.abs(area1 - area0) < area0 * 0.02,
+     `AB: area conserved through the splash (${(area1 / area0).toFixed(3)}× original)`);
+
+  // and a GENTLE landing must NOT split — beads only fly on hard impacts
+  reset();
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const g = new Ball(W.cw / 2, W.ch - pad - 60, 20, MATERIALS.mercury);
+  balls.push(g);
+  run(240 * 1.5);
+  ok(balls.filter(b => b.mat.name === 'MERCURY').length === 1,
+     'AB: gentle landing stays one blob');
+}
+
+function testHoneyVsWater() {
+  console.log('AC. honey is a DISTINCT liquid — discrete drops, flows far slower than water');
+  const pad = 40;
+  const pour = (mat) => {
+    reset();
+    addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+    const r = 9, floorY = W.ch - pad;
+    // a 6-wide × 8-tall column of drops standing on the floor
+    for (let i = 0; i < 6; i++) for (let j = 0; j < 8; j++) {
+      balls.push(new Ball(W.cw / 2 + (i - 2.5) * 2 * r, floorY - r - j * 2 * r, r, mat));
+    }
+    const count0 = balls.length;
+    run(240 * 2);
+    let minx = 1e9, maxx = -1e9;
+    for (const b of balls) { minx = Math.min(minx, b.x); maxx = Math.max(maxx, b.x); }
+    return { spread: maxx - minx, count: balls.length, count0 };
+  };
+  const w = pour(MATERIALS.water);
+  const h = pour(MATERIALS.honey);
+  ok(noNaN(), 'AC: no NaN');
+  ok(h.count >= h.count0 * 0.8,
+     `AC: honey stays discrete drops (${h.count}/${h.count0} — a liquid, not one merged ball)`);
+  ok(h.spread > 6 * 2 * 9 * 1.05,
+     `AC: honey does flow outward (spread ${h.spread.toFixed(0)} > column width)`);
+  ok(w.spread > h.spread * 1.4,
+     `AC: water runs much further than honey (water ${w.spread.toFixed(0)} vs honey ${h.spread.toFixed(0)})`);
+}
+
+function testLavaCoolsStiff() {
+  console.log('AD. lava merges while molten; a cooling crust (low heat) no longer merges');
+  reset({ gravity: false, drag: 0 });
+  const mk = (x, heat) => {
+    const b = new Ball(x, 400, 14, MATERIALS.lava);
+    b.heat = heat; b.vx = x < W.cw / 2 ? 25 : -25;
+    balls.push(b); return b;
+  };
+  mk(560, 1.0); mk(640, 1.0);                  // molten pair, drifting together
+  run(240 * 2);
+  ok(balls.length === 1, `AD: molten lava merged (${balls.length} ball)`);
+
+  reset({ gravity: false, drag: 0 });
+  mk(560, 0.15); mk(640, 0.15);                // crusted-over pair (not yet rock)
+  run(240 * 2);
+  const lavas = balls.filter(b => b.mat.name === 'LAVA' || b.mat.name === 'ROCK');
+  ok(lavas.length === 2, `AD: crusted lava stays separate (${lavas.length} balls)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -643,5 +717,8 @@ testSoftBudget();
 testSoftHardSquash();
 testSoftStack();
 testMaterialOrderings();
+testMercurySplash();
+testHoneyVsWater();
+testLavaCoolsStiff();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

@@ -167,6 +167,9 @@ function spawnImpactFor(mat, x, y, nx, ny, magnitude) {
 export function tryFluidMerge(a, b) {
   if (!a.mat.fluid || a.mat.name !== b.mat.name) return false;
   if (a.pinned || b.pinned) return false;
+  // A crusted-over molten blob (cooling skin, heat below ~0.25) is no longer
+  // liquid enough to coalesce — it stacks until it solidifies into rock.
+  if (a.mat.molten && (a.heat < 0.25 || b.heat < 0.25)) return false;
   const dvx = b.vx - a.vx, dvy = b.vy - a.vy;
   const relSpeed = Math.sqrt(dvx * dvx + dvy * dvy);
   const combinedR = Math.sqrt(a.r * a.r + b.r * b.r);
@@ -194,6 +197,40 @@ export function tryFluidMerge(a, b) {
   b._dead = true;
 
   Snd.noise(0.08, 0.14, 1800);
+  stats.collisions++;
+  return true;
+}
+
+/**
+ * Liquid splash: a `fluid` blob hit hard enough breaks into 2–3 beads, area
+ * (mass) conserved, beads thrown symmetrically (momentum conserved) — the
+ * other half of the merge behaviour. Slammed mercury sprays into beads that
+ * crawl back together once they slow below the merge threshold; molten lava
+ * splatters, but a crusted-over blob (low heat) holds like the merge gate.
+ *
+ * @param {import('../entities/ball.js').Ball} b
+ * @param {number} impactV — normal-component speed at contact (px/s)
+ * @returns {boolean} true if it splashed (b is dead — stop processing it)
+ */
+export function tryFluidSplit(b, impactV) {
+  if (b._dead || !b.mat.fluid || b.pinned || b.isFragment) return false;
+  if (b.mat.molten && b.heat < 0.25) return false;
+  if (b.r < 14 || impactV < 420) return false;
+  const n = Math.random() < 0.5 ? 2 : 3;
+  if (balls.length + n > 260) return false;
+  const nr = b.r / Math.sqrt(n);              // n beads of equal area
+  const base = Math.random() * TAU;
+  const sp = Math.min(260, impactV * 0.22);   // splash speed ≪ impact speed
+  for (let i = 0; i < n; i++) {
+    const a = base + (i / n) * TAU;           // symmetric fan — Σv cancels
+    const d = new Ball(b.x + Math.cos(a) * b.r * 0.6, b.y + Math.sin(a) * b.r * 0.6, nr, b.mat);
+    d.vx = b.vx + Math.cos(a) * sp;
+    d.vy = b.vy + Math.sin(a) * sp;
+    d.heat = b.heat;
+    balls.push(d);
+  }
+  b._dead = true;
+  Snd.noise(0.07, 0.12, 2200);
   stats.collisions++;
   return true;
 }
@@ -275,9 +312,10 @@ export function ballContactEvent(c) {
   if (a.mat.chip && Math.random() < a.mat.chip) spawnChip(a.x + nx * a.r * 0.8, a.y + ny * a.r * 0.8, nx, ny, 40, a.mat.color);
   if (b.mat.chip && Math.random() < b.mat.chip) spawnChip(b.x - nx * b.r * 0.8, b.y - ny * b.r * 0.8, -nx, -ny, 40, b.mat.color);
 
-  // fracture — impulses are already applied, so the partner still got its kick
-  const aFractured = tryFracture(a, absVn);
-  const bFractured = tryFracture(b, absVn);
+  // fracture / splash — impulses are already applied, so the partner still
+  // got its kick; a dead (shattered or splashed) ball skips FX below
+  const aFractured = tryFracture(a, absVn) || tryFluidSplit(a, absVn);
+  const bFractured = tryFracture(b, absVn) || tryFluidSplit(b, absVn);
 
   if (!aFractured && a.mat.explosive && absVn > (a.mat.detonateV || 260)) lightFuse(a);
   if (!bFractured && b.mat.explosive && absVn > (b.mat.detonateV || 260)) lightFuse(b);
@@ -351,9 +389,13 @@ export function collideWall(b, wall) {
   b.vy -= vn * ny * (1 + e);
 
   const restFactor = Math.abs(vn) < 80 ? 1.6 : 1;
-  // Mercury / fluid materials have much higher effective friction on walls,
-  // so they cling before sliding off — closes the "mercury feels solid" gap.
-  const fluidPull = b.mat.fluid ? 2.6 : 1;
+  // Sticky/viscous liquids have much higher effective friction on walls, so
+  // they cling before sliding off. `cling` is the explicit per-material knob
+  // (honey); merge-fluids (mercury, lava) default to 2.6 — except molten lava,
+  // whose grip grows as it cools and crusts (runny hot → tacky cold).
+  const fluidPull = b.mat.cling
+    ?? (b.mat.molten ? 1.4 + (1 - b.heat) * 2
+      : b.mat.fluid ? 2.6 : 1);
   const mu = b.mat.friction * PHYS.frictionMul * heatFricMod(b) * restFactor * fluidPull;
   const denom = 1 + b.r * b.r / b.inertia * b.mass;
   // Tangential restitution (super-ball off a wall): an elastic material stores
@@ -391,15 +433,16 @@ export function collideWall(b, wall) {
   // Rolling-resistance contact: every wall touch refreshes the contact
   // timer so step.js can apply per-material tangential damping while the
   // ball is rolling. Fluids get a longer grace — they cling.
-  b.groundT = b.mat.fluid ? 0.20 : 0.08;
+  b.groundT = (b.mat.fluid || b.mat.cling) ? 0.20 : 0.08;
   b.contactNx = nx;
   b.contactNy = ny;
 
   // chip emission on wall hits too
   if (b.mat.chip && Math.random() < b.mat.chip) spawnChip(cx, cy, nx, ny, 40, b.mat.color);
 
-  // wall fracture check
+  // wall fracture / liquid splash check
   if (tryFracture(b, Math.abs(vn))) return;
+  if (tryFluidSplit(b, Math.abs(vn))) return;
 
   // TNT — wall slam can also trigger the fuse if the hit is hard enough.
   if (b.mat.explosive && Math.abs(vn) > (b.mat.detonateV || 260)) lightFuse(b);
@@ -459,6 +502,7 @@ export function collidePeg(b, peg) {
   b.contactNy = ny;
 
   if (tryFracture(b, Math.abs(vn))) return;
+  if (tryFluidSplit(b, Math.abs(vn))) return;
 
   // TNT detonation from a hard peg hit as well (bumpers count).
   if (b.mat.explosive && Math.abs(vn) > (b.mat.detonateV || 260)) lightFuse(b);

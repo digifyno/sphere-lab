@@ -67,9 +67,11 @@ export function heatRestMod(b) {
   return 1 - h * 0.15;
 }
 
-/** Friction goes up with heat on rubber + ice (both get sticky). */
+/** Friction goes up with heat on rubber + ice (both get sticky). Molten
+ *  materials run the other way: runny while hot, tacky as the crust forms. */
 export function heatFricMod(b) {
   if (!PHYS.heatFx) return 1;
+  if (b.mat.molten)            return 1.6 - b.heat * 0.8;
   if (b.mat.name === 'RUBBER') return 1 + b.heat * 0.5;
   if (b.mat.name === 'ICE')    return 1 + b.heat * 0.8;
   return 1 + b.heat * 0.2;
