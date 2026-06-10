@@ -1393,6 +1393,40 @@ function testMagnetSizeScaling() {
   ok(b.vx - a.vx > 0, `BE: like poles repel (separating at ${(b.vx - a.vx).toFixed(2)} px/s)`);
 }
 
+// ───────────── BF: superball slip reversal off a stiff partner ──────────────
+function testTangentialRestitution() {
+  console.log('BF. a spinning rubber ball reverses its spin off steel; steel-on-steel does not');
+  const bounceSpin = (matK) => {
+    reset({ gravity: false, drag: 0 });
+    const anvil = new Ball(640, 400, 20, MATERIALS.steel); anvil.pinned = true;
+    const b = new Ball(540, 400, 20, MATERIALS[matK]);
+    b.vx = 300; b.omega = 30;                  // head-on with strong spin
+    balls.push(anvil, b);
+    const ke0 = totalKE();
+    run(120);                                  // 0.5 s — hit + rebound
+    return { omega: b.omega, vyAbs: Math.abs(b.vy), ke0, ke1: totalKE() };
+  };
+  const rub = bounceSpin('rubber');
+  ok(noNaN(), 'BF: no NaN');
+  // The compliant body stores the contact shear and gives it back REVERSED —
+  // the superball trick. Plain slip-killing friction can convert at most the
+  // whole slip (ω·r = 600) across the tangential effective mass (1/m + 2/m),
+  // i.e. a sideways kick of ≤ 200 px/s and spin no lower than ~10. Beating
+  // that bound proves the contact gave back stored shear. min-combining e_t
+  // silently zeroed this for rubber against any stiff material.
+  ok(rub.vyAbs > 230,
+     `BF: rubber's sideways rebound beats the slip-kill bound (|vy| ${rub.vyAbs.toFixed(0)} > 230)`);
+  ok(rub.omega < 5,
+     `BF: rubber surrendered nearly all spin into the reversal (ω 30 → ${rub.omega.toFixed(1)})`);
+  ok(rub.ke1 <= rub.ke0 + 1e-6,
+     `BF: the reversal never adds energy (KE ${rub.ke1.toFixed(2)} ≤ ${rub.ke0.toFixed(2)})`);
+  // Control: stiff-on-stiff has no shear spring — friction can only bleed
+  // slip toward zero, so the kick stays inside the slip-kill bound.
+  const st = bounceSpin('steel');
+  ok(st.vyAbs <= 230,
+     `BF: steel-on-steel stays inside the slip-kill bound (|vy| ${st.vyAbs.toFixed(0)} ≤ 230)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1451,5 +1485,6 @@ testFloatLineAtWaterDensity();
 testMagnusScaling();
 testDragBySize();
 testMagnetSizeScaling();
+testTangentialRestitution();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

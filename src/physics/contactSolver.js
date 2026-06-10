@@ -148,10 +148,15 @@ export function solveBallContacts(dt, events) {
     const vnInit = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;  // <0 = approaching
     const approach = vnInit < 0 ? -vnInit : 0;
     const impact = approach >= WAKE_V;
-    // EXPERIMENT: tangential restitution slip captured at build time
+    // Tangential restitution (super-ball behaviour): slip captured at build
+    // time. The shear is stored in the contact patch of the COMPLIANT body,
+    // so the springier material's e_t dominates the pair (max) — a rubber
+    // ball reverses its slip off steel or glass, not only off other rubber.
+    // Two stiff bodies (both e_t = 0) still get plain Coulomb friction, and
+    // the cone clamp below caps the reversal at the available grip.
     const _surfVA0 = -a.omega * a.r, _surfVB0 = b.omega * b.r;
     const vtInit = (b.vx - a.vx) * tx + (b.vy - a.vy) * ty + (_surfVA0 - _surfVB0);
-    const etRaw = Math.min(a.mat.tanRest ?? 0, b.mat.tanRest ?? 0);
+    const etRaw = Math.max(a.mat.tanRest ?? 0, b.mat.tanRest ?? 0);
     const et = etRaw > 1 ? 1 : etRaw < 0 ? 0 : etRaw;
 
     // Only a genuine impact wakes a sleeper. A gentle rest-contact leaves it
