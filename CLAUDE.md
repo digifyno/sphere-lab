@@ -82,18 +82,18 @@ index.html
 **modal synthesis** — the physical way real objects make noise:
 
 - **Attack transient** — a short filtered-noise burst modelling the contact
-  click. Material-specific: highpass for metals (`STEEL` @6 kHz, `GLASS`
-  @8 kHz, `ICE` @9 kHz), lowpass for rubbery thuds (`RUBBER` @780 Hz,
-  `BOWLING` @320 Hz), bandpass for mercury.
-- **Modal stack** — a handful of sine oscillators at each material's natural
-  frequencies, each with its own amplitude and decay. Steel has 4 high modes
-  that ring for ~0.5 s; rubber has a single 140 Hz mode that dies in 60 ms.
+  click. Material-specific: highpass for metals (`STEEL` @5 kHz, `GLASS`
+  @7 kHz, `ICE` @8.5 kHz), lowpass for rubbery thuds (`RUBBER` @680 Hz,
+  `BOWLING` @360 Hz), bandpass for mercury.
+- **Modal stack** — sine oscillators at each material's natural frequencies,
+  each with its own amplitude and decay. Steel rings 9 inharmonic modes, the
+  fundamental for ~1.3 s; rubber's 120 Hz fundamental dies in ~110 ms.
 - **Cross-material damping** — a collision call `emitMaterialSound(mat, str,
   otherSoftness)` dampens the modes by `(1 - otherSoftness · 0.75)`. Rubber
   (`deform = 1.0`) hitting steel absorbs most of the impulse, so the steel
   barely rings and the dominant sound is the rubber thud.
-- **Detune** — each mode gets ±1 % random detune per hit so repeats aren't
-  identical.
+- **Detune** — each mode gets a small (±0.75 %) random detune per hit so
+  repeats aren't identical.
 - **Reverb bus** — modes above 1.5 kHz route a little signal to a short
   convolver; low modes don't (rooms reverb high frequencies).
 
@@ -120,13 +120,13 @@ constant, that test is the contract.
 | Gold     | 19.3    | 0.38   | 0.47     | Very heavy, `deform=0.55` (dents), warm ding |
 | Plasma   | 0.3     | 0.70   | 0.18     | Detuned buzz, bright sparkle, lots of glow (stylized) |
 | Ice      | 0.92    | 0.32   | 0.04     | **Fragile** above 380 px/s, `chip=0.25` (chips every hit), floats |
-| Magnet   | 7.5     | 0.62   | 0.42     | Mutual `1/r²` attraction (NdFeB density) |
+| Magnet   | 7.5     | 0.62   | 0.42     | Mutual `1/r²` attraction, force ∝ both magnets' volumes (NdFeB density) |
 | Mercury  | 13.55   | 0.22   | 0.08     | `fluid=true` — merges with other mercury at low relative speed |
 | Wood     | 0.62    | 0.42   | 0.62     | Floats (ρ < water); anisotropic — slides easier along its grain (`fricAniso`) |
 | Sand     | 2.65    | 0.14   | 0.70     | `granular` quartz grains — interlock + solver rolling moment, heaps at repose |
 | Balloon  | 0.16    | 0.74   | 0.65     | `lift=1` rises (`dragMul=2` caps rise below `popV`); a membrane — `pops` on slams (>520 px/s), hot or sharp contact |
 | Antimatter | 1.0   | 0.50   | 0.20     | `antimatter` — annihilates ordinary matter on contact |
-| Honey    | 1.42    | 0.05   | 0.85     | `fluidSim` at 7× water's viscosity (`sphVisc`) — oozes, `cling`s to walls |
+| Honey    | 1.42    | 0.05   | 0.06     | `fluidSim` at ~9× water's viscosity (`sphVisc`) — oozes, `cling`s to walls; LOW friction like every liquid (no dry-friction yield stress) |
 | Water    | 1.0     | 0.04   | 0.02     | `fluidSim=true` — particle fluid: cohesion + viscosity, flows + levels |
 
 (Also defined in `materials.js`: diamond 3.52/0.96, obsidian 2.55/0.80 — a
@@ -188,10 +188,17 @@ Key behaviours:
   by `collisions.js::ballContactEvent`, which the solver calls via an `events`
   hook. The legacy impulse magnitude `(1+e)·|vn|/Σ(1/m)` is reconstructed there
   so every FX/sound threshold is unchanged — the solver itself is pure and
-  head-less-testable (no audio/DOM imports).
+  head-less-testable (no audio/DOM imports). Heat conduction there is
+  per-SECOND (`dh·condA·condB·dt` — τ ≈ 0.6 s for a steel pair, effectively
+  never for insulators), so it reads on screen and survives tick-rate changes.
 - `I = ½ m r²` (solid disk) feeds rotational response to friction.
 - **Restitution combines as `min(eA, eB)`** — the softer material dominates,
-  matches experiment better than an arithmetic average.
+  matches experiment better than an arithmetic average. **Tangential**
+  restitution (`tanRest`, super-ball slip reversal) combines as **max** — the
+  COMPLIANT body's contact patch stores the shear — and is capped by the
+  Coulomb cone, so it redirects energy into spin, never injects any. Passive
+  restitution is capped at 1 everywhere (solver, walls, pegs); active sources
+  (bouncy wall ×1.4, bumper ×1.8, flipper ×1.05) ride on top, uncapped.
 - **Velocity-dependent restitution** (`materialMods.js::velRestScale`) makes
   hard impacts lose more energy than gentle ones.
 - **Temperature effects** (`materialMods.js::heatRestMod / heatFricMod`) —
@@ -214,23 +221,34 @@ Key behaviours:
 - **Rolling enhancement** — wall friction is 1.6× when |vₙ| < 80 to damp
   jitter so balls settle instead of buzzing.
 - **CCD:** each ball's motion is substepped so |Δx per step| < 0.6·r.
-- **Magnus** uses a velocity snapshot and scales by cross-sectional area
-  `A = π r²` — big balls curve more (correct Magnus scaling in 2D).
-- **Drag** is `k_lin + k_quad·|v|`, scaled by `A/A_ref` — big balls feel
-  heavier air resistance.
-- **Broadphase:** uniform spatial hash with cell = max(40, 2.2·maxR).
-  Emits pairs from a cell plus 4 forward-directional neighbors (no dupes).
-- **Buoyancy:** Archimedes — `F = ρ_fluid · V_sub · g`, with `ρ_fluid = 1.0`.
-  Materials lighter than water (wood, balloon) float; balloons additionally get
-  `mat.lift` anti-gravity in `step.js` and rise.
+- **Magnus** uses a velocity snapshot; the sideways acceleration is `∝ ω·v/ρ`
+  — radius-free (Magnus force and mass both scale with cross-section), density-
+  aware (a balloon swerves, gold barely bends), saturating with the spin
+  parameter S = ω·r/|v|, and **airborne-only** (`groundT ≤ 0`): lift needs a
+  free stream, and in-pile "lift" measurably propped up heap slopes.
+- **Drag** deceleration is `(k_lin + k_quad·|v|) / (ρ·r)` — frontal exposure
+  grows one power of r slower than mass, so shards flutter, boulders plough,
+  and dense materials coast (normalised at ρ=1, r=20: the default ball keeps
+  the tuned feel).
+- **Broadphase:** uniform spatial hash with cell = max(40, 2.2·maxR). Each
+  ball is hashed into every cell its swept AABB covers; same-cell pairs are
+  deduped by id (the swept box is what feeds ball-ball CCD).
+- **Buoyancy:** Archimedes — `F = ρ_fluid · V_sub · g`, with `ρ_fluid = 1.0`
+  and the float line at exactly ρ = 1: wood floats high, ice rides ~90 %
+  submerged, rubber (1.15) and jelly (1.05) sink slowly. Balloons additionally
+  get `mat.lift` anti-gravity in `step.js` and rise. A ball suspended in plane
+  water with no contact support never sleeps (near-neutral buoyancy would
+  otherwise freeze it mid-water).
 - **N-body gravity** (`forces.js::applyNbody`, gated on `W.nbody`): mutual
   softened 1/r² attraction between all balls. Pinned bodies (the star) attract
   without drifting; air drag is suppressed when `W.nbody` so orbits persist.
   `scenes/orbits.js` seeds circular orbits at `v = √(NBODY_G·M / R)`.
 - **Particle fluid** (`physics/sph.js`, materials with `fluidSim`): PBF density
   projection + XSPH viscosity, grouped **per material** — each fluid reads its
-  own `sphVisc` (water 0.08, honey 0.55), so honey visibly oozes where water
-  sloshes. Neither merges (that's the separate `fluid` flag used by
+  own `sphVisc` (water 0.08, honey 0.70), so honey visibly oozes where water
+  sloshes. Liquids carry near-zero Coulomb friction — their thickness lives in
+  viscosity + `roll` damping + `cling`, which resist motion, not load, so a
+  honey heap creeps flat instead of standing at the friction cone. Neither merges (that's the separate `fluid` flag used by
   mercury/lava, which also `tryFluidSplit` into beads when slammed).
 - **Soft bodies** (`mat.soft`, built by `buildSoftBall`): a ring of ≤12 node
   balls (no centre ball) held by perimeter springs + **shape matching**
@@ -324,14 +342,18 @@ shim (`tests/shim.mjs`) stubs `document`/`window`/canvas so the **real**
 `physicsStep` and the full app boot run under Node (audio is a safe no-op
 because `Snd.ctx` stays null).
 
-- `tests/sim.test.mjs` — ~230 physics invariant asserts: momentum conservation,
+- `tests/sim.test.mjs` — ~310 physics invariant asserts: momentum conservation,
   no energy injection (total KE+PE never rises), resting stacks settle + sleep,
   no tunnelling, Newton's-cradle transfer, bound N-body orbit, buoyancy by
   density, balloon lift + pop, antimatter annihilation, soft-body shape
   recovery/settling/area/budget, material-constant orderings (AA — the
   contract when retuning `materials.js`), mercury splash, honey-vs-water
   rheology, lava crusting, fracture energy criterion + mass conservation,
-  granular slope bounds, gold plasticity, slime adhesion, wood grain.
+  granular slope bounds, gold plasticity, slime adhesion, wood grain,
+  heat-conduction rate + conservation (BA), the ρ=1 float line (BB), Magnus
+  density/radius scaling (BC), size-aware drag (BD), magnet moment scaling
+  (BE), tangential slip reversal off stiff partners (BF), and the passive
+  wall/peg restitution cap (BG).
 - `tests/scenes.test.mjs` — every registered scene steps 3 s with no NaN/throw.
 - `tests/boot.test.mjs` — imports `main.js` (runs `init()`): UI, prefs, scene,
   loop wiring must resolve cleanly.

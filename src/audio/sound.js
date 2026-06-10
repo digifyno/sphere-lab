@@ -37,7 +37,7 @@
  *   7. **Per-material reverb send.** Bright materials (glass, ice, steel)
  *      send more of their bright modes to the reverb bus than dull ones.
  *
- *   8. **Detune jitter.** Each mode picks up ±1.5 % random detune per hit
+ *   8. **Detune jitter.** Each mode picks up ±0.75 % random detune per hit
  *      so repeated collisions don't phase-lock into identical sounds.
  *
  *   9. **Master compressor.** A gentle 4:1 compressor after the master bus
