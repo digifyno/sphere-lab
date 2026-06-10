@@ -99,29 +99,35 @@ full power plus extra high sine partials and a broad noise wash.
 ## Material realism
 
 Each material in `src/entities/materials.js` is tuned to feel physically
-distinct. Densities are (approximately) their real-world values in g/cm³ —
-gold is ≈14× the mass of rubber at the same radius.
+distinct. Densities are real-world values in g/cm³ — gold (19.3) is ≈17× the
+mass of rubber at the same radius; a sand grain is quartz (2.65). Bounce +
+friction are kinetic literature values; the orderings (rubber out-bounces
+steel, diamond out-bounces glass, sand grips harder than rubber, …) are
+asserted by `tests/sim.test.mjs::testMaterialOrderings` — if you retune a
+constant, that test is the contract.
 
 | Material | Density | Bounce | Friction | Special |
 | -------- | ------- | ------ | -------- | ------- |
-| Steel    | 7.8     | 0.62   | 0.35     | Sharp ping + warm sparks + metallic ring |
-| Rubber   | 1.1     | 0.88   | 0.80     | `deform=1` (big squash, slow recovery), muffled thud |
-| Glass    | 2.5     | 0.95   | 0.10     | **Fragile** above 550 px/s, sparkle FX, tink sound |
-| Bowling  | 3.5     | 0.22   | 0.60     | Deep thud, dust puff, absorbs energy |
-| Neon     | 0.9     | 0.78   | 0.40     | Emissive, colored sparkle |
-| Gold     | 17.5    | 0.38   | 0.42     | Very heavy, `deform=0.55` (dents), warm ding |
-| Plasma   | 0.3     | 0.70   | 0.18     | Detuned buzz, bright sparkle, lots of glow |
+| Steel    | 7.85    | 0.75   | 0.42     | Sharp ping + warm sparks + metallic ring |
+| Rubber   | 1.15    | 0.88   | 0.90     | `deform=1` (big squash, slow recovery), muffled thud |
+| Glass    | 2.5     | 0.93   | 0.32     | **Fragile** above 550 px/s, sparkle FX, tink sound |
+| Bowling  | 1.35    | 0.32   | 0.35     | Deep thud, dust puff, absorbs energy (real 7.26 kg/Ø22 cm) |
+| Neon     | 0.9     | 0.78   | 0.40     | Emissive, colored sparkle (stylized) |
+| Gold     | 19.3    | 0.38   | 0.47     | Very heavy, `deform=0.55` (dents), warm ding |
+| Plasma   | 0.3     | 0.70   | 0.18     | Detuned buzz, bright sparkle, lots of glow (stylized) |
 | Ice      | 0.92    | 0.32   | 0.04     | **Fragile** above 380 px/s, `chip=0.25` (chips every hit), floats |
-| Magnet   | 5.0     | 0.40   | 0.55     | Mutual `1/r²` attraction |
-| Mercury  | 13.5    | 0.22   | 0.08     | `fluid=true` — merges with other mercury at low relative speed |
+| Magnet   | 7.5     | 0.62   | 0.42     | Mutual `1/r²` attraction (NdFeB density) |
+| Mercury  | 13.55   | 0.22   | 0.08     | `fluid=true` — merges with other mercury at low relative speed |
 | Wood     | 0.62    | 0.42   | 0.62     | Floats (ρ < water), matte, dead bounce |
-| Sand     | 1.6     | 0.14   | 0.95     | Granular — high friction + `roll`, heaps at an angle of repose |
-| Balloon  | 0.16    | 0.74   | 0.36     | `lift=1` — rises against gravity, bobs at the ceiling |
+| Sand     | 2.65    | 0.14   | 0.95     | Granular quartz grains — heap at an angle of repose |
+| Balloon  | 0.16    | 0.74   | 0.65     | `lift=1` — rises against gravity; grippy rubber membrane |
 | Antimatter | 1.0   | 0.50   | 0.20     | `antimatter` — annihilates ordinary matter on contact |
-| Honey    | 1.42    | 0.10   | 0.85     | `fluid=true` — viscous pool, clings to walls |
+| Honey    | 1.42    | 0.05   | 0.85     | `fluid=true` — viscous pool, clings to walls |
 | Water    | 1.0     | 0.04   | 0.02     | `fluidSim=true` — particle fluid: cohesion + viscosity, flows + levels |
 
-(Also defined in `materials.js`: diamond, obsidian, TNT, lava, rock, slime.)
+(Also defined in `materials.js`: diamond 3.52/0.96, obsidian 2.55/0.80 — a
+true glass, elastic until it cleaves — TNT 1.65, lava, rock 2.90 basalt,
+slime, jelly — a real soft body, see `entities/softBody.js`.)
 
 Key behaviours:
 - **Squash amplitude + recovery** scale with `material.deform`. Rubber compresses heavily and stays compressed for ~150 ms; steel snaps back within one frame.

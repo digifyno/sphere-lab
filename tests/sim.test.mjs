@@ -566,6 +566,54 @@ function testSoftDecay() {
   ok(blobMaxSpeed(sb) < 25, `X: perturbation decayed to rest (node maxSpeed ${blobMaxSpeed(sb).toFixed(1)} < 25)`);
 }
 
+// ───────────────── AA: material constants are physically ordered ───────────
+function testMaterialOrderings() {
+  console.log('AA. material constants are physically ordered (real-data audit)');
+  const M = MATERIALS;
+  const gt = (a, b, prop) =>
+    ok(M[a][prop] > M[b][prop],
+       `AA: ${prop} ${a} (${M[a][prop]}) > ${b} (${M[b][prop]})`);
+
+  // sanity: every material's constants live in physical ranges
+  for (const [id, m] of Object.entries(M)) {
+    ok(m.restitution >= 0 && m.restitution <= 1, `AA: ${id} restitution in [0,1]`);
+    ok(m.density > 0, `AA: ${id} density > 0`);
+    ok(m.friction >= 0 && m.friction <= 1.5, `AA: ${id} friction sane`);
+  }
+
+  // restitution — elastomers + elastic crystals out-bounce plastic/dead matter
+  gt('rubber', 'steel', 'restitution');     // the classic demo: rubber wins
+  gt('glass', 'steel', 'restitution');      // glass marbles bounce remarkably
+  gt('diamond', 'glass', 'restitution');    // stiffest crystal, least loss
+  gt('steel', 'gold', 'restitution');       // elastic vs soft plastic metal
+  gt('obsidian', 'bowling', 'restitution'); // obsidian IS glass — elastic till it cleaves
+  gt('rubber', 'wood', 'restitution');
+  gt('wood', 'sand', 'restitution');
+  ok(M.water.restitution < 0.1 && M.honey.restitution < 0.1,
+     'AA: liquids have no bounce of their own');
+
+  // density — real g/cm³
+  ok(Math.abs(M.gold.density - 19.3) < 0.5, `AA: gold is real gold (${M.gold.density} ≈ 19.3)`);
+  gt('gold', 'mercury', 'density');
+  gt('mercury', 'steel', 'density');
+  gt('steel', 'diamond', 'density');
+  gt('diamond', 'glass', 'density');
+  gt('glass', 'rubber', 'density');
+  ok(M.sand.density > 2, `AA: a sand grain is quartz (${M.sand.density} ≈ 2.65), not bulk sand`);
+  ok(M.wood.density < 1 && M.ice.density < 1, 'AA: wood + ice are lighter than water');
+  gt('honey', 'water', 'density');
+  ok(Math.abs(M.tnt.density - 1.65) < 0.15, `AA: TNT at its real 1.65 (${M.tnt.density})`);
+
+  // friction — granular interlock > tyre rubber > metals > smooth > lubricated
+  gt('sand', 'rubber', 'friction');
+  gt('rubber', 'wood', 'friction');
+  gt('wood', 'steel', 'friction');
+  gt('steel', 'glass', 'friction');
+  ok(M.ice.friction < 0.05, `AA: ice is near-frictionless (${M.ice.friction})`);
+  ok(M.water.friction <= M.ice.friction, 'AA: water is the most slippery thing in the lab');
+  ok(M.mercury.friction < 0.1, 'AA: mercury slides like the liquid it is');
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -594,5 +642,6 @@ testSoftDecay();
 testSoftBudget();
 testSoftHardSquash();
 testSoftStack();
+testMaterialOrderings();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }
