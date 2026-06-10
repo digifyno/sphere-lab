@@ -54,8 +54,11 @@ export function applyBuoyancy(b, dt) {
   // Displaced "volume" uses the SAME r²·k convention as ball mass
   // (ball.js: mass = r²·density·0.001) — no π. Mixing a πr² volume against a
   // π-less mass would scale buoyancy by π (~3.1×), making everything up to
-  // ρ≈3.8 float (glass, rock, sand…). With the matching convention the float
-  // line sits at ρ ≈ 1.2 (the ×1.2 fudge below), so only sub-water materials rise.
+  // ρ≈3.8 float (glass, rock, sand…). With the matching convention (and no
+  // extra fudge factor) the float line sits at exactly ρ = 1.0: wood and ice
+  // rise, rubber (1.15) and jelly (1.05) genuinely sink — slowly, as they
+  // should — and a fully submerged ρ=1 ball is neutral. Ice floats almost
+  // fully submerged (8 % net lift), which is what real ice does.
   // Soft-body nodes read their blob's per-node displacement share instead:
   // the ring disks overlap by design, so each node's own r² would sum to
   // ~1.76× the blob's volume and float ρ>1 jelly half out of the water.
@@ -64,7 +67,7 @@ export function applyBuoyancy(b, dt) {
   // button), a submerged ball should just drift, not spontaneously
   // shoot upward. Drag + splash still apply so water keeps its feel.
   const gActive = PHYS.gravityOn ? Math.max(0, PHYS.gravity) : 0;
-  const buoyForce = fluidDensity * ballVol * frac * gActive * 1.2;
+  const buoyForce = fluidDensity * ballVol * frac * gActive;
   b.vy -= buoyForce / b.mass * dt;
 
   const v = len(b.vx, b.vy);

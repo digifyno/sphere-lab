@@ -1288,6 +1288,30 @@ function testHeatConductionRate() {
      `BA: rubber insulates — cold side barely warms in 0.1 s (${r.cold.heat.toFixed(4)} < 0.01)`);
 }
 
+// ───────────── BB: the float line sits at ρ = 1.0 exactly ──────────────────
+function testFloatLineAtWaterDensity() {
+  console.log('BB. neutral buoyancy at ρ=1.0 — rubber (1.15) sinks, ice (0.92) floats nearly submerged');
+  reset();
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  W.waterY = W.ch * 0.4;
+  PHYS.heatFx = false;                          // keep ice from melting — buoyancy only
+  const rubber = new Ball(W.cw / 2 - 150, W.waterY + 60, 18, MATERIALS.rubber);
+  const ice    = new Ball(W.cw / 2 + 150, W.waterY + 60, 18, MATERIALS.ice);
+  balls.push(rubber, ice);
+  run(240 * 6);
+  ok(noNaN(), 'BB: no NaN');
+  // Rubber is denser than water: it must sink, not bob at the surface.
+  ok(rubber.y > W.waterY + 150,
+     `BB: rubber (ρ=1.15) sank (depth ${(rubber.y - W.waterY).toFixed(0)} px > 150)`);
+  // Ice floats — but at ρ=0.92 it rides ~90 % submerged: centroid below the
+  // waterline, yet it must NOT sink away (still within a radius of the surface).
+  ok(ice.y < W.waterY + ice.r * 1.5,
+     `BB: ice stayed at the surface (centroid ${(ice.y - W.waterY).toFixed(1)} px below waterline < r·1.5)`);
+  ok(ice.y > W.waterY - ice.r,
+     `BB: ice floats LOW in the water, not riding on top like cork (centroid ${(ice.y - W.waterY).toFixed(1)} px vs waterline)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1342,5 +1366,6 @@ testShatterWakesSleepers();
 testDeadBallDropsSprings();
 testMoltenGripSingleLaw();
 testHeatConductionRate();
+testFloatLineAtWaterDensity();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

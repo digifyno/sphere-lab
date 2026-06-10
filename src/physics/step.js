@@ -432,7 +432,14 @@ export function physicsStep(dt) {
   // sleep bookkeeping — must come AFTER integration + solver
   for (const b of balls) {
     if (b.pinned || b.grabbed) { b.sleeping = false; b.restTime = 0; continue; }
-    if (b.isResting()) {
+    // A ball floating/suspended in plane water with no contact support must
+    // NOT sleep: near-neutral buoyancy keeps |v| inside the rest window for
+    // ever (the settle damping below caps it), and sleeping there freezes the
+    // ball mid-water — ice hangs below the surface, rubber stops sinking.
+    // Anything with a recent contact (pool floor, a pile) still sleeps.
+    const suspendedInWater = W.waterY !== undefined
+      && b.y + b.r > W.waterY && b.groundT <= 0;
+    if (b.isResting() && !suspendedInWater) {
       b.restTime += dt;
       if (b.restTime > SLEEP_DELAY) {
         b.sleeping = true;
