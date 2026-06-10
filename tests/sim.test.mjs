@@ -858,6 +858,78 @@ function testGoldPlasticity() {
   ok(hard.e > 0.05, `AG: still bounces a little (${hard.e.toFixed(3)} > 0.05)`);
 }
 
+// ───────────────── AH–AJ: balloon pop, sticky slime, wood grain ─────────────
+function testBalloonPop() {
+  console.log('AH. balloons bounce gently, POP on hard slams and against hot things');
+  const pad = 40;
+  const slam = (v) => {
+    reset({ gravity: false, drag: 0 });
+    addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+    const b = new Ball(150, 400, 18, MATERIALS.balloon); b.vx = -v;
+    balls.push(b);
+    run(240);
+    return balls.length;
+  };
+  ok(slam(200) === 1, 'AH: a gentle 200 px/s bounce leaves the balloon whole');
+  ok(slam(700) === 0, 'AH: a 700 px/s slam pops it (bang, shreds, gone)');
+
+  // heat pops a balloon at ANY speed — rest one against a hot ball
+  reset({ gravity: false, drag: 0 });
+  const hot = new Ball(600, 400, 20, MATERIALS.steel); hot.heat = 0.9; hot.pinned = true;
+  const bal = new Ball(637, 400, 18, MATERIALS.balloon); bal.vx = -8;
+  balls.push(hot, bal);
+  run(240);
+  ok(balls.length === 1 && balls[0].mat.name === 'STEEL',
+     `AH: touching a hot ball pops the balloon (${balls.length} ball left)`);
+}
+
+function testSlimeBlob() {
+  console.log('AI. slime spawns as a sticky soft blob that adheres to what it lands on');
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const anchor = new Ball(W.cw / 2, W.ch - pad - 24, 24, MATERIALS.steel);
+  balls.push(anchor);
+  const before = balls.length;
+  const sb = buildSoftBall(W.cw / 2 + 10, W.ch - pad - 160, 34, MATERIALS.slime);
+  ok(sb !== null, 'AI: slime blob built');
+  ok(balls.length - before <= 9, `AI: slime blob is cheap (${balls.length - before} ≤ 9 balls)`);
+  run(240 * 4);
+  ok(noNaN(), 'AI: no NaN');
+  let bonded = false;
+  for (const s of W.springs) {
+    if (s.tag === 'slime' && (s.a === anchor || s.b === anchor)) bonded = true;
+  }
+  ok(bonded, 'AI: a slime bond formed onto the steel ball (it sticks, not just rests)');
+  const c = blobCentroid(sb);
+  const d = Math.hypot(c.x - anchor.x, c.y - anchor.y);
+  ok(d < 110, `AI: the blob stayed stuck around its anchor (centroid ${d.toFixed(0)} px away)`);
+}
+
+function testWoodGrain() {
+  console.log('AJ. wood slides farther along its grain than across it (anisotropic friction)');
+  const pad = 40;
+  const slideDistance = (grainAngle) => {
+    reset();
+    addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+    const b = new Ball(200, W.ch - pad - 20, 20, MATERIALS.wood);
+    b.angle = grainAngle;
+    b.vx = 600;
+    b.inertia = 1e12;          // rotation-locked rig: isolate sliding friction
+    balls.push(b);
+    const x0 = b.x;
+    for (let i = 0; i < 240 * 3; i++) {
+      physicsStep(DT);
+      if (Math.abs(b.vx) < 40) break;
+    }
+    return b.x - x0;
+  };
+  const along = slideDistance(0);                 // grain parallel to travel
+  const across = slideDistance(Math.PI / 2);      // grain perpendicular
+  ok(noNaN(), 'AJ: no NaN');
+  ok(along > across * 1.15,
+     `AJ: along-grain slide ${along.toFixed(0)} px > across-grain ${across.toFixed(0)} px × 1.15`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -893,5 +965,8 @@ testLavaCoolsStiff();
 testFractureRealism();
 testAngleOfRepose();
 testGoldPlasticity();
+testBalloonPop();
+testSlimeBlob();
+testWoodGrain();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

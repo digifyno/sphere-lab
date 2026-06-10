@@ -30,7 +30,7 @@ import { PHYS } from '../core/config.js';
 import { W } from '../core/world.js';
 import { balls, wake } from '../entities/ball.js';
 import { buildPairs } from './broadphase.js';
-import { matVelRestScale, heatRestMod, heatFricMod, combineFriction } from './materialMods.js';
+import { matVelRestScale, heatRestMod, heatFricMod, combineFriction, anisoFric } from './materialMods.js';
 
 /** Approach speed (px/s) below which a contact gets no restitution rebound. */
 const REST_SLOP = 10;
@@ -179,7 +179,8 @@ export function solveBallContacts(dt, events) {
     const e = Math.min(1, baseE * PHYS.restitutionMul * matVelRestScale(approach, softer)
             * heatRestMod(a) * heatRestMod(b));
     let mu = combineFriction(a.mat.friction, b.mat.friction) * PHYS.frictionMul
-             * heatFricMod(a) * heatFricMod(b);
+             * heatFricMod(a) * heatFricMod(b)
+             * anisoFric(a, tx, ty) * anisoFric(b, tx, ty);
     // Granular interlock: angular grains CATCH each other at impact far beyond
     // their smooth-surface friction (asperities bite), while their static cone
     // stays moderate. Round disks otherwise skate around each other and a pile

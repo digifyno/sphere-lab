@@ -74,6 +74,9 @@
  * @property {number}  [softPressure] — gas-pressure scale (area preservation)
  * @property {number}  [softShape]  — shape-matching stiffness: fraction of shape error closed per step (0..~0.3)
  * @property {number}  [softDamp]   — non-rigid-motion damping per step (higher = settles faster, less wobble)
+ * @property {boolean} [pops]       — membrane that bursts: hard impact, hot contact, or a sharp/hard hitter
+ * @property {number}  [popV]       — impact normal-velocity that bursts the membrane (px/s)
+ * @property {number}  [fricAniso]  — 0..1 grain friction anisotropy: μ along the grain = μ·(1−fricAniso)
  */
 
 /** @type {Record<MaterialId, Material>} */
@@ -113,23 +116,27 @@ export const MATERIALS = {
   // Rock — cooled lava. Dense basalt; not fluid, no glow. Selectable on
   // its own too so you can drop heavy rocks into any scene.
   rock:    { name: 'ROCK',    color: '#3d322a', density: 2.90, restitution: 0.20, friction: 0.78, metallic: 0,    glow: 0,    refract: 0,    pitch: 200,  timbre: 'square',   deform: 0.15, roll: 0.05,  heatKeep: 0.9960, cond: 0.25, bounceBack: 0.05, hardness: 0.50 },
-  // Slime — soft, clingy. On collision it forms a short-lived spring with
-  // the contacted ball (see `tryAdhere` in collisions). Bonds break above
+  // Slime — soft, clingy. Spawns as a soft-body blob whose surface nodes
+  // keep the adhesion: it oozes (overdamped, unlike jelly's wobble) and
+  // bonds onto whatever it lands on (see `tryAdhere`). Bonds break above
   // a stretch + force threshold so a hard hit rips free. Translucent body.
-  slime:   { name: 'SLIME',   color: '#7de65a', density: 0.95, restitution: 0.30, friction: 0.75, metallic: 0,    glow: 0.06, refract: 0.42, pitch: 340,  timbre: 'sine',     deform: 0.95, roll: 0.10,  heatKeep: 0.9950, cond: 0.10, bounceBack: 0.75, squashMax: 0.55, adhesive: true, ior: 1.4 },
+  slime:   { name: 'SLIME',   color: '#7de65a', density: 0.95, restitution: 0.30, friction: 0.75, metallic: 0,    glow: 0.06, refract: 0.42, pitch: 340,  timbre: 'sine',     deform: 0.95, roll: 0.10,  heatKeep: 0.9950, cond: 0.10, bounceBack: 0.75, squashMax: 0.55, adhesive: true, ior: 1.4, soft: true, softNodes: 8, softStiff: 0.30, softPressure: 0.75, softShape: 0.03, softDamp: 0.12 },
   // Jelly — a true deformable blob (soft-body lattice): flattens on impact,
   // stores elastic energy in its shape, and wobbles back. Translucent, lively.
   jelly:   { name: 'JELLY',   color: '#5ad0c8', density: 1.05, restitution: 0.55, friction: 0.50, metallic: 0,    glow: 0.08, refract: 0.30, pitch: 300,  timbre: 'sine',     deform: 0.95, roll: 0.08,  heatKeep: 0.9945, cond: 0.18, bounceBack: 0.85, squashMax: 0.55, soft: true, softNodes: 10, softStiff: 0.35, softPressure: 1.0, softShape: 0.05, softDamp: 0.03, ior: 1.35 },
   // Wood — light enough to float (density < water = 1.0), matte, dead-ish
-  // bounce, grippy. A dropped log bobs on the Water scene surface.
-  wood:    { name: 'WOOD',    color: '#a9742f', density: 0.62, restitution: 0.42, friction: 0.62, metallic: 0,    glow: 0,    refract: 0,    pitch: 420,  timbre: 'triangle', deform: 0.25, roll: 0.06,  heatKeep: 0.9950, cond: 0.08, bounceBack: 0.18, hardness: 0.40 },
+  // bounce, grippy, and ANISOTROPIC: it slides easier along its grain than
+  // across it (fricAniso), and the brushed highlight shows the grain axis.
+  wood:    { name: 'WOOD',    color: '#a9742f', density: 0.62, restitution: 0.42, friction: 0.62, metallic: 0,    glow: 0,    refract: 0,    pitch: 420,  timbre: 'triangle', deform: 0.25, roll: 0.06,  heatKeep: 0.9950, cond: 0.08, bounceBack: 0.18, hardness: 0.40, fricAniso: 0.45, anisotropy: 0.55, brushAxis: 0 },
   // Sand — granular grain. Almost no bounce, very high friction, heavy rolling
   // resistance: a pile of sand grains heaps and holds a slope (the warm-started
   // solver makes the granular pile actually stable instead of jittering apart).
   sand:    { name: 'SAND',    color: '#d8c084', density: 2.65, restitution: 0.14, friction: 0.70, metallic: 0,    glow: 0,    refract: 0,    pitch: 240,  timbre: 'square',   deform: 0.12, roll: 0.80,  heatKeep: 0.9955, cond: 0.20, bounceBack: 0.05, hardness: 0.30 },
   // Balloon — helium-light. `lift` overcomes gravity so it rises, bobs, and
-  // collects against the ceiling; soft and very bouncy.
-  balloon: { name: 'BALLOON', color: '#ff5da2', density: 0.16, restitution: 0.74, friction: 0.65, metallic: 0,    glow: 0.08, refract: 0,    pitch: 620,  timbre: 'sine',     deform: 0.70, roll: 0.12,  heatKeep: 0.9920, cond: 0.04, bounceBack: 0.70, squashMax: 0.50, lift: 1 },
+  // collects against the ceiling; soft and very bouncy. It's a MEMBRANE:
+  // a hard slam, a hot ball, or a sharp/hard hitter bursts it — bang,
+  // rubber shreds, air puff, gone.
+  balloon: { name: 'BALLOON', color: '#ff5da2', density: 0.16, restitution: 0.74, friction: 0.65, metallic: 0,    glow: 0.08, refract: 0,    pitch: 620,  timbre: 'sine',     deform: 0.70, roll: 0.12,  heatKeep: 0.9920, cond: 0.04, bounceBack: 0.70, squashMax: 0.50, lift: 1, pops: true, popV: 520 },
   // Antimatter — touch any ordinary matter and both annihilate in a burst of
   // energy (radial blast + gamma flash + heat). Two antimatter balls coexist.
   antimatter:{ name:'ANTIMATTER', color:'#d9a8ff', density: 1.00, restitution: 0.50, friction: 0.20, metallic: 0,    glow: 1.35, refract: 0,    pitch: 1500, timbre: 'sawtooth', deform: 0.30, roll: 0.03,  heatKeep: 0.9970, cond: 0.50, bounceBack: 0.30, antimatter: true },

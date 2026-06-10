@@ -84,5 +84,22 @@ export function heatFricMod(b) {
  */
 export function combineFriction(muA, muB) { return Math.sqrt(muA * muB); }
 
+/**
+ * Anisotropic (grain) friction factor — wood slides easier ALONG its grain
+ * than across it. The grain axis rotates with the ball (b.angle + brushAxis,
+ * the same axis the brushed-highlight shader draws), and the factor depends
+ * on the angle between the slip tangent and the grain:
+ *   tangent ∥ grain  →  1 − fricAniso   (smooth, fibres aligned)
+ *   tangent ⊥ grain  →  1               (full grip, slipping across fibres)
+ * cos² form: smooth, sign-free, costs two trig calls only for grained balls.
+ */
+export function anisoFric(b, tx, ty) {
+  const k = b.mat.fricAniso;
+  if (!k) return 1;
+  const g = b.angle + (b.mat.brushAxis || 0);
+  const c = Math.cos(g) * tx + Math.sin(g) * ty;
+  return 1 - k * c * c;
+}
+
 /** Inverse mass, with pinned balls returning 0 so impulses don't move them. */
 export function invMass(b) { return b.pinned ? 0 : 1 / b.mass; }

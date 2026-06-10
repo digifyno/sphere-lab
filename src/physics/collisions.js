@@ -20,7 +20,7 @@ import {
 } from '../entities/particles.js';
 import { Snd } from '../audio/sound.js';
 import { explode } from './explode.js';
-import { matVelRestScale, heatRestMod, heatFricMod, combineFriction, invMass } from './materialMods.js';
+import { matVelRestScale, heatRestMod, heatFricMod, combineFriction, anisoFric, invMass } from './materialMods.js';
 import { stats } from './stats.js';
 import { wake, balls, Ball } from '../entities/ball.js';
 import { tryFracture } from './fracture.js';
@@ -212,6 +212,45 @@ export function tryFluidMerge(a, b) {
 }
 
 /**
+ * Membrane burst (balloon). A pop is sudden: bang, a fan of rubber shreds,
+ * a one-shot air-puff ring, and the ball is gone — no fragments, the helium
+ * just leaves.
+ * @param {import('../entities/ball.js').Ball} b
+ */
+function pop(b) {
+  if (b._dead) return;
+  b._dead = true;
+  for (let i = 0; i < 7; i++) {
+    const a = Math.random() * TAU;
+    spawnChip(b.x + Math.cos(a) * b.r * 0.5, b.y + Math.sin(a) * b.r * 0.5,
+              Math.cos(a), Math.sin(a), rand(120, 320), b.mat.color);
+  }
+  spawnSmoke(b.x, b.y, 0, -20, 'rgba(255,235,245,0.35)', 0.9);
+  particles.push({
+    x: b.x, y: b.y, vx: 0, vy: 0, life: 0.35, maxLife: 0.35,
+    color: b.mat.color, size: 2, type: 'ring', ringR0: b.r * 0.5, ringR1: b.r * 3.2
+  });
+  // bang: a broadband crack + a low thump of the released air
+  Snd.noise(0.05, 0.5, 2800);
+  Snd.bonk(130, 0.25, 0.09, 'sine');
+  stats.collisions++;
+}
+
+/**
+ * Burst check for membrane materials: a hard slam, contact with a hot ball,
+ * or any decent hit from a sharp/hard material (diamond scores rubber).
+ * @returns {boolean} true if it popped (b is dead)
+ */
+export function tryPop(b, impactV, other) {
+  if (!b.mat.pops || b._dead) return false;
+  const hot = other && other.heat > 0.55;
+  const sharp = other && (other.mat.hardness ?? 0) > 0.85 && impactV > 160;
+  if (!(impactV > (b.mat.popV ?? 520) || hot || sharp)) return false;
+  pop(b);
+  return true;
+}
+
+/**
  * Liquid splash: a `fluid` blob hit hard enough breaks into 2–3 beads, area
  * (mass) conserved, beads thrown symmetrically (momentum conserved) — the
  * other half of the merge behaviour. Slammed mercury sprays into beads that
@@ -299,6 +338,11 @@ export function ballContactEvent(c) {
     a.heat = clamp(a.heat + flow, 0, 1);
     b.heat = clamp(b.heat - flow, 0, 1);
   }
+
+  // membrane burst — a hot neighbour pops a balloon at ANY speed, a slam or
+  // a sharp/hard hitter at impact speed. Handles both balls; a popped ball
+  // is gone, so skip the rest of the contact bookkeeping.
+  if (tryPop(a, absVn, b) || tryPop(b, absVn, a)) return;
 
   // ball-ball contact registers as a rolling surface for the sound mix +
   // rolling-resistance damping in step.js.
@@ -420,7 +464,8 @@ export function collideWall(b, wall) {
   const fluidPull = b.mat.cling
     ?? (b.mat.molten ? 1.4 + (1 - b.heat) * 2
       : b.mat.fluid ? 2.6 : 1);
-  const mu = b.mat.friction * PHYS.frictionMul * heatFricMod(b) * restFactor * fluidPull;
+  const mu = b.mat.friction * PHYS.frictionMul * heatFricMod(b) * restFactor * fluidPull
+           * anisoFric(b, tx, ty);
   const denom = 1 + b.r * b.r / b.inertia * b.mass;
   // Tangential restitution (super-ball off a wall): an elastic material stores
   // shear in the contact patch and rebounds with reversed slip v_t' = −e_t·v_t.
@@ -464,9 +509,10 @@ export function collideWall(b, wall) {
   // chip emission on wall hits too
   if (b.mat.chip && Math.random() < b.mat.chip) spawnChip(cx, cy, nx, ny, 40, b.mat.color);
 
-  // wall fracture / liquid splash check
+  // wall fracture / liquid splash / membrane burst check
   if (tryFracture(b, Math.abs(vn))) return;
   if (tryFluidSplit(b, Math.abs(vn))) return;
+  if (tryPop(b, Math.abs(vn))) return;
 
   // TNT — wall slam can also trigger the fuse if the hit is hard enough.
   if (b.mat.explosive && Math.abs(vn) > (b.mat.detonateV || 260)) lightFuse(b);
@@ -531,6 +577,7 @@ export function collidePeg(b, peg) {
 
   if (tryFracture(b, Math.abs(vn))) return;
   if (tryFluidSplit(b, Math.abs(vn))) return;
+  if (tryPop(b, Math.abs(vn))) return;
 
   // TNT detonation from a hard peg hit as well (bumpers count).
   if (b.mat.explosive && Math.abs(vn) > (b.mat.detonateV || 260)) lightFuse(b);

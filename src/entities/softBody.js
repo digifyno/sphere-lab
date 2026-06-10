@@ -68,13 +68,15 @@ export class SoftBody {
 }
 
 /** Node material: the parent's look + bounce, but with per-node side-effects
- *  (adhesion, fracture, merge, annihilation, chips, spin-restitution, magnetism)
- *  stripped — so a blob doesn't fountain slime bonds, shatter, or merge against
- *  its own nodes. Cloned once per blob and shared by its nodes. */
+ *  (fracture, merge, annihilation, chips, spin-restitution, magnetism)
+ *  stripped — so a blob doesn't shatter or merge against its own nodes.
+ *  Adhesion is KEPT (slime): intra-blob pairs never reach the contact events
+ *  (the solver skips them), so sticky nodes only bond outward — a slime blob
+ *  glues onto what it touches. Cloned once per blob, shared by its nodes. */
 function nodeMaterial(mat) {
   return {
     ...mat,
-    adhesive: false, fragile: false, fluid: false, fluidSim: false,
+    fragile: false, fluid: false, fluidSim: false,
     antimatter: false, explosive: false, chip: 0, tanRest: 0, magnetic: false,
   };
 }
