@@ -11,9 +11,11 @@
 import { W, cam, clearWorld } from '../core/world.js';
 import { PHYS } from '../core/config.js';
 import { clearContactCache } from '../physics/contactSolver.js';
+import { clearSPH } from '../physics/sph.js';
 import { showSceneTitle } from '../ui/sceneTitle.js';
 import { getPref } from '../core/persistence.js';
 import { updateToggle } from '../ui/hud.js';
+import { Snd } from '../audio/sound.js';
 
 import sandbox   from './sandbox.js';
 import billiards from './billiards.js';
@@ -59,6 +61,7 @@ const LABELS = {
 export function loadScene(name) {
   clearWorld();
   clearContactCache();
+  clearSPH();
   W.scene = name;
   W.rainSpawn = false;
 
@@ -72,6 +75,9 @@ export function loadScene(name) {
   cam.x  = W.cw / 2; cam.y  = W.ch / 2; cam.zoom = 1;
 
   (SCENES[name] || sandbox)();
+
+  // Tune the room reverb to this scene's enclosure (no-op until audio starts).
+  Snd.setRoom(W.walls);
 
   const label = LABELS[name] || name;
   document.getElementById('stat-scene').textContent = label;

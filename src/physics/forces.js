@@ -87,7 +87,8 @@ export function applyBuoyancy(b, dt) {
       phase: 0,
       life: 1.6
     });
-    Snd.noise(0.12, Math.min(0.15, b.vy * 0.0005), 3000);
+    Snd.noise(0.10, Math.min(0.12, b.vy * 0.0005), 3000);          // spray hiss
+    Snd.plop(b.x, clamp(b.vy * 0.0006, 0.05, 0.35));               // bubble "ploop"
   }
 }
 
@@ -178,65 +179,6 @@ export function applyNbody(dt) {
   }
 }
 
-/** Cohesion reach as a multiple of the contact distance (rₐ+r_b). */
-const FLUID_RANGE = 2.4;
-/** Surface-tension cohesion strength (acceleration scale). Kept gentle — strong
- *  cohesion balls the liquid up into a droplet instead of letting it level. */
-const FLUID_COH = 130;
-/** Viscosity: per-step fraction of relative velocity smoothed away (XSPH-ish). */
-const FLUID_VISC = 0.045;
-
-/**
- * Particle-fluid forces for `fluidSim` materials (water). The rigid contact
- * solver already keeps drops from overlapping — that's the incompressibility.
- * On top of that we add, between like drops within range:
- *   • cohesion: an attractive force with an Akinci-style kernel (zero at the
- *     surface and at the edge of range, peak in between) → surface tension.
- *   • viscosity: smooth neighbouring velocities → the body moves coherently
- *     instead of as a gas of bouncing points.
- * Sleeping drops are skipped, so a settled pool stays asleep. O(k²) over the
- * fluid drops only (k ≤ ball cap), with a quick range cull.
- */
-export function applyFluidSim(dt) {
-  const f = [];
-  for (let i = 0; i < balls.length; i++) {
-    const b = balls[i];
-    if (b.mat.fluidSim && !b.pinned && !b.sleeping) f.push(b);
-  }
-  const n = f.length;
-  if (n < 2) return;
-  for (let i = 0; i < n; i++) {
-    const a = f[i];
-    for (let j = i + 1; j < n; j++) {
-      const b = f[j];
-      if (a.mat !== b.mat) continue;               // each liquid is cohesive only with itself
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const h = (a.r + b.r) * FLUID_RANGE;
-      const d2 = dx * dx + dy * dy;
-      if (d2 >= h * h) continue;
-      const d = Math.sqrt(d2) || 1e-4;
-      const q = d / h;                              // 0..1
-      const nx = dx / d, ny = dy / d;
-
-      // Mass-weighted split so each interaction conserves momentum even for
-      // unequal-size drops. For equal masses fa == fb == 1, identical to a plain
-      // symmetric velocity delta (so the tuned uniform-water behaviour is kept).
-      const mt = a.mass + b.mass;
-      const fa = 2 * b.mass / mt, fb = 2 * a.mass / mt;
-
-      // cohesion — peaks mid-range, vanishes at the surface and at the edge
-      const coh = FLUID_COH * (q * (1 - q) * 4) * dt;
-      a.vx += nx * coh * fa; a.vy += ny * coh * fa;
-      b.vx -= nx * coh * fb; b.vy -= ny * coh * fb;
-
-      // viscosity — stronger for closer neighbours
-      const w = FLUID_VISC * (1 - q);
-      const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
-      a.vx += rvx * w * fa; a.vy += rvy * w * fa;
-      b.vx -= rvx * w * fb; b.vy -= rvy * w * fb;
-    }
-  }
-}
 
 /** Age water ripples + cull dead ones. Called each step from step.js. */
 export function stepRipples(dt) {

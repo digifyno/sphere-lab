@@ -386,6 +386,70 @@ function testHotPlasmaNoGain() {
   ok(totalKE() <= ke0 + 1e-6, `N: hot plasma didn't inject KE (${totalKE().toFixed(2)} ≤ ${ke0.toFixed(2)})`);
 }
 
+// ───────────────────── R/S: PBF water injects no energy ────────────────────
+function waterColumn() {
+  reset();
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const floorY = W.ch - pad, r = 10, x0 = pad + r + 2;
+  for (let row = 0; row < 14; row++)
+    for (let col = 0; col < 6; col++)
+      balls.push(new Ball(x0 + col * (2 * r - 0.5), floorY - r - row * (2 * r - 0.5), r, MATERIALS.water));
+}
+function testWaterEnergyBounded() {
+  console.log('R. a water column never gains total energy (PBF density projection is energy-safe)');
+  waterColumn();
+  const e0 = totalEnergy();
+  run(240 * 5);
+  ok(noNaN(), 'R: no NaN');
+  ok(totalEnergy() <= e0 * 1.02, `R: water energy bounded (${totalEnergy().toFixed(0)} ≤ ${(e0 * 1.02).toFixed(0)})`);
+}
+function testWaterSteadyState() {
+  console.log('S. a SETTLED water pool does not creep upward in energy (no steady-state injection)');
+  waterColumn();
+  run(240 * 6);                  // settle into a pool
+  const e0 = totalEnergy();
+  run(240 * 5);                  // 5 more seconds at rest
+  ok(noNaN(), 'S: no NaN');
+  ok(totalEnergy() <= e0 * 1.02 + 1, `S: settled pool didn't gain energy (${totalEnergy().toFixed(0)} ≤ ${(e0 * 1.02).toFixed(0)})`);
+}
+
+// ───────────────────── Q: terminal velocity depends on density ─────────────
+function testTerminalByDensity() {
+  console.log('Q. dense balls coast, light balls are held back by air drag (density-correct drag)');
+  reset({ gravity: false });
+  PHYS.drag = 0.05;
+  // Same radius, same launch speed — drag deceleration ∝ 1/ρ, so after a moment
+  // the dense ball has kept far more speed than the light one.
+  const gold = new Ball(400, 400, 20, MATERIALS.gold); gold.vy = 1000;
+  const wood = new Ball(800, 400, 20, MATERIALS.wood); wood.vy = 1000;
+  balls.push(gold, wood);
+  run(120);   // 0.5 s of pure drag deceleration
+  ok(noNaN(), 'Q: no NaN');
+  ok(balls.includes(gold) && balls.includes(wood), 'Q: both balls still in play');
+  ok(gold.vy > wood.vy + 80, `Q: dense gold coasts, light wood is held back (gold vy=${gold.vy.toFixed(0)} > wood vy=${wood.vy.toFixed(0)})`);
+}
+
+// ───────────────────── P: fast balls don't tunnel (ball-ball CCD) ──────────
+function testNoTunnelFast() {
+  console.log('P. fast small balls collide instead of passing through (ball-ball CCD)');
+  reset({ gravity: false, drag: 0 });
+  const r = 5;
+  // Two tiny balls fired head-on near the max speed cap. Without swept CCD they
+  // skip past each other between discrete steps (confirmed: a ends right of b).
+  const a = new Ball(560, 400, r, MATERIALS.steel); a.vx = 3500;
+  const b = new Ball(640, 400, r, MATERIALS.steel); b.vx = -3500;
+  balls.push(a, b);
+  const p0 = a.mass * a.vx + b.mass * b.vx;
+  const ke0 = totalKE();
+  run(60);
+  ok(noNaN(), 'P: no NaN');
+  ok(a.x < b.x, `P: balls did not tunnel through each other (a.x=${a.x.toFixed(0)} stayed left of b.x=${b.x.toFixed(0)})`);
+  ok(a.vx < 3500, `P: the fast ball actually collided (vx ${a.vx.toFixed(0)} < 3500)`);
+  ok(Math.abs((a.mass * a.vx + b.mass * b.vx) - p0) < 1e-2, 'P: momentum conserved through the CCD bounce');
+  ok(totalKE() <= ke0 + 1e-6, `P: CCD bounce injected no KE (${totalKE().toFixed(0)} ≤ ${ke0.toFixed(0)})`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -403,5 +467,9 @@ testSpinFriction();
 testWakeOnRemoval();
 testRepeatedBounce();
 testHotPlasmaNoGain();
+testNoTunnelFast();
+testTerminalByDensity();
+testWaterEnergyBounded();
+testWaterSteadyState();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

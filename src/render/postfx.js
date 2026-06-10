@@ -155,6 +155,21 @@ export function doBloomPass() {
   bloomCtx.drawImage(bloomPass2, 0, 0);
   bloomCtx.filter = 'none';
 
+  // --- 3b. dither the bloom to break 8-bit banding ---
+  // The half-res bloom is wide, smooth, additive gradients on dark backgrounds —
+  // the classic case where quantization posterizes into visible rings. A faint
+  // noise overlay scatters the steps so glow halos / the solar corona read as
+  // smooth. (Independent of the optional film-grain pass in doPostFX.)
+  const pat = bloomCtx.createPattern(grainCanvas, 'repeat');
+  if (pat) {
+    bloomCtx.save();
+    bloomCtx.globalCompositeOperation = 'overlay';
+    bloomCtx.globalAlpha = 0.5;
+    bloomCtx.fillStyle = pat;
+    bloomCtx.fillRect(0, 0, bloomCanvas.width, bloomCanvas.height);
+    bloomCtx.restore();
+  }
+
   // --- 4. composite additively onto main canvas ---
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';

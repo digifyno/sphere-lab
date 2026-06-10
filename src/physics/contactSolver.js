@@ -86,10 +86,44 @@ export function solveBallContacts(dt, events) {
     // Two sleeping balls in contact are a settled island — skip entirely.
     if (a.sleeping && b.sleeping) continue;
 
-    const dx = b.x - a.x, dy = b.y - a.y;
+    let dx = b.x - a.x, dy = b.y - a.y;
     const rsum = a.r + b.r;
-    const d2 = dx * dx + dy * dy;
-    if (d2 >= rsum * rsum) continue;
+    let d2 = dx * dx + dy * dy;
+    // Swept CCD: if the pair started this step SEPARATED and had real relative
+    // motion, find the earliest time-of-impact (solve |P + t·V|² = rsum²) and,
+    // if they reached contact during the step, snap both to that entry contact.
+    // This catches BOTH a clean pass-through (separated at the end sample) and a
+    // "crossed but overlapping on the wrong side at the end" — which the static
+    // end-sample would misread as separating and let tunnel through.
+    let swept = false;
+    {
+      const aSx = (a.pinned || a.sleeping) ? a.x : a.px;
+      const aSy = (a.pinned || a.sleeping) ? a.y : a.py;
+      const bSx = (b.pinned || b.sleeping) ? b.x : b.px;
+      const bSy = (b.pinned || b.sleeping) ? b.y : b.py;
+      const Px = bSx - aSx, Py = bSy - aSy;
+      const C = Px * Px + Py * Py - rsum * rsum;
+      if (C > 0) {                                 // started separated
+        const aex = a.x - aSx, aey = a.y - aSy;
+        const bex = b.x - bSx, bey = b.y - bSy;
+        const Vx = bex - aex, Vy = bey - aey;
+        const A = Vx * Vx + Vy * Vy;
+        if (A > 1e-6) {
+          const B = 2 * (Px * Vx + Py * Vy);
+          const disc = B * B - 4 * A * C;
+          if (disc >= 0) {
+            const t = (-B - Math.sqrt(disc)) / (2 * A);
+            if (t >= 0 && t <= 1) {                // contact reached this step
+              a.x = aSx + aex * t; a.y = aSy + aey * t;
+              b.x = bSx + bex * t; b.y = bSy + bey * t;
+              dx = b.x - a.x; dy = b.y - a.y; d2 = dx * dx + dy * dy;
+              swept = true;
+            }
+          }
+        }
+      }
+    }
+    if (!swept && d2 >= rsum * rsum) continue;
     // Coincident balls (e.g. two spawned on the same pixel) have no defined
     // normal — synthesize a deterministic one so they actually separate
     // instead of dividing by ~0 and getting a (0,0) normal that does nothing.

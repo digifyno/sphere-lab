@@ -23,7 +23,8 @@ import { Snd } from '../audio/sound.js';
 import { collideWall, collidePeg, ballContactEvent, tryFluidMerge } from './collisions.js';
 import { solveBallContacts } from './contactSolver.js';
 import { updateFlippers, collideFlipper } from './flippers.js';
-import { applyVortex, applySolar, applyBuoyancy, applyMagnetism, applyNbody, applyFluidSim, stepRipples } from './forces.js';
+import { applyVortex, applySolar, applyBuoyancy, applyMagnetism, applyNbody, stepRipples } from './forces.js';
+import { applySPH } from './sph.js';
 import { processTNT } from './tnt.js';
 import { breakSlimeBonds } from './adhesion.js';
 import { mouse } from '../input/mouse.js';
@@ -43,8 +44,8 @@ export function physicsStep(dt) {
   updateFlippers(dt);
   applyMagnetism(dt);
   applyNbody(dt);
-  applyFluidSim(dt);
   stepRipples(dt);
+  // (water SPH runs post-integration, just before the rigid solve — see applySPH below)
 
   const TOOL = getTool();
 
@@ -310,15 +311,21 @@ export function physicsStep(dt) {
       if (dx * dx + dy * dy < 100 * 100) b.heat = Math.min(1, b.heat + dt * 3);
     }
 
-    // drag scales with cross-sectional area — big balls feel heavy air.
+    // Drag is a force; the DECELERATION it produces is F/m. For our 2D disks
+    // A/m = πr²/(r²·ρ·k) ∝ 1/ρ — independent of radius, inversely proportional
+    // to density. So a dense ball (gold) coasts through air and a light one
+    // (wood, balloon) is held back, reaching a much lower terminal velocity —
+    // the real "a feather falls slower than a stone" behaviour. (ρ≈1 reproduces
+    // the old tuned default, so the PHYS.drag slider keeps its meaning.)
     // Suppressed in N-body space (vacuum) so orbits don't slowly spiral in.
     const vmag = len(b.vx, b.vy);
-    const areaScale = b.area / REF_AREA;
+    const areaScale = b.area / REF_AREA;   // used by Magnus below (larger ball, more lift)
     if (!W.nbody) {
-      const dragK = PHYS.drag * areaScale * (1 + vmag * 0.0018);
+      const densityScale = 1 / Math.max(0.05, mat.density);
+      const dragK = PHYS.drag * densityScale * (1 + vmag * 0.0018);
       const dragFactor = Math.max(0, 1 - dragK * dt);
       b.vx *= dragFactor; b.vy *= dragFactor;
-      b.omega *= Math.max(0, 1 - PHYS.drag * areaScale * dt * 0.8);
+      b.omega *= Math.max(0, 1 - PHYS.drag * densityScale * dt * 0.8);
     }
 
     // Magnus: F⊥ = k·ω·v·A at low spin, but the lift coefficient saturates with
@@ -389,6 +396,10 @@ export function physicsStep(dt) {
       }
     }
   }
+
+  // Water incompressibility/viscosity/surface-tension (PBF) on the integrated
+  // tentative positions, then the rigid solver resolves water-vs-everything.
+  applySPH(dt);
 
   if (balls.length > 0) {
     solveBallContacts(dt, { merge: tryFluidMerge, contact: ballContactEvent });

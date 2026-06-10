@@ -490,12 +490,44 @@ export const Snd = {
       conv.connect(wet);
       wet.connect(comp);
       this.wetBus = conv;
+      this._conv = conv;        // kept so setRoom() can retune the IR per scene
+      this._wetGain = wet;
+      this._comp = comp;
     } catch (e) {
       this.ctx = null;
     }
   },
 
   applyVolume() { if (this.master) this.master.gain.value = PHYS.volume; },
+
+  /**
+   * Tune the room reverb to the scene's wall extent — a boxed scene (pinball,
+   * tower) sounds roomy; an open one (orbits, solar) is nearly anechoic. Decay
+   * length + wet level scale with the enclosure's diagonal. Safe no-op head-less
+   * (ctx stays null in the test harness). Call from loadScene after walls exist.
+   * @param {{x1:number,y1:number,x2:number,y2:number}[]} walls
+   */
+  setRoom(walls) {
+    if (!this.ctx || !this._conv) return;
+    let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9, n = 0;
+    for (const w of (walls || [])) {
+      minx = Math.min(minx, w.x1, w.x2); maxx = Math.max(maxx, w.x1, w.x2);
+      miny = Math.min(miny, w.y1, w.y2); maxy = Math.max(maxy, w.y1, w.y2); n++;
+    }
+    const size = n ? Math.hypot(maxx - minx, maxy - miny) : 0;   // enclosure diagonal (px)
+    const decay = clamp(0.22 + size / 1800, 0.22, 1.4);          // seconds
+    const wet = n ? clamp(0.05 + size / 6000, 0.05, 0.20) : 0.02;
+    const sr = this.ctx.sampleRate, irLen = Math.max(1, Math.floor(sr * decay));
+    const buf = this.ctx.createBuffer(2, irLen, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < irLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 2.5);
+    }
+    this._conv.buffer = buf;
+    if (this._wetGain) this._wetGain.gain.setTargetAtTime
+      ? this._wetGain.gain.setTargetAtTime(wet, this.ctx.currentTime, 0.05)
+      : (this._wetGain.gain.value = wet);
+  },
 
   /** Returns true if the budget has room for another voice right now. */
   _canSpawn() {
@@ -605,6 +637,61 @@ export const Snd = {
     const cw = W.cw || window.innerWidth || 1000;
     const pan = clamp(((ball.x ?? cw / 2) / cw) * 2 - 1, -0.85, 0.85);
     this.subThud(freq, gain, 0.14, pan);
+  },
+
+  /** Rising-pitch "ploop" of a splash — a sine sweeping UP (~90 ms) as the
+   *  Minnaert bubble cavity collapses. For water/mercury entry + merges. */
+  plop(x, vol) {
+    if (!this.ctx || !PHYS.sound || PHYS.volume <= 0) return;
+    if (!this._canSpawn()) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'sine';
+    const f0 = 260 + Math.random() * 140;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f0 * 2.4, t + 0.09);   // sweep up
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(clamp(vol, 0, 0.4), t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+    o.connect(g);
+    const cw = W.cw || 1000;
+    if (this.ctx.createStereoPanner) {
+      const p = this.ctx.createStereoPanner();
+      p.pan.value = clamp((x / cw) * 2 - 1, -0.85, 0.85);
+      g.connect(p); p.connect(this.master);
+    } else g.connect(this.master);
+    o.onended = () => this._release();
+    this._claim();
+    o.start(t); o.stop(t + 0.14);
+  },
+
+  /** Granular click swarm — a few short broadband clicks over ~40 ms, the
+   *  Poisson patter of sand grains instead of one white-noise puff. */
+  granular(x, vol, n) {
+    if (!this.ctx || !PHYS.sound || PHYS.volume <= 0) return;
+    if (!this._canSpawn()) return;
+    const t0 = this.ctx.currentTime;
+    const cw = W.cw || 1000;
+    let dst = this.master;
+    if (this.ctx.createStereoPanner) {
+      const pan = this.ctx.createStereoPanner();
+      pan.pan.value = clamp((x / cw) * 2 - 1, -0.85, 0.85);
+      pan.connect(this.master); dst = pan;
+    }
+    const cnt = Math.min(5, Math.max(2, n | 0));
+    for (let i = 0; i < cnt; i++) {
+      const t = t0 + Math.random() * 0.04;
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.value = 1800 + Math.random() * 2600;
+      g.gain.setValueAtTime(clamp(vol, 0, 0.3) * (0.5 + Math.random() * 0.5), t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.012);
+      o.connect(g); g.connect(dst);
+      this._claim(); o.onended = () => this._release();
+      o.start(t); o.stop(t + 0.014);
+    }
   },
 
   /** Internal — sub-millisecond broadband click, the primary contact pop.
@@ -873,6 +960,19 @@ export const Snd = {
     this.emitMaterialSound(a, strength, softB, brightness);
     this.emitMaterialSound(b, strength, softA, brightness);
     this._maybeSubThud(a.mass >= b.mass ? a : b, vn);   // heavier body drives the felt thud
+    this._maybeGranular(a, vn); this._maybeGranular(b, vn);
+  },
+
+  /** Sand grain patter on a real impact — gated by a short per-ball cooldown so
+   *  a settling sandpile (hundreds of contacts) doesn't turn into a roar. */
+  _maybeGranular(ball, vn) {
+    if (!this.ctx || !PHYS.sound || PHYS.volume <= 0) return;
+    if (ball.mat.name !== 'SAND' || vn < 70) return;
+    const t = this.ctx.currentTime;
+    if (ball._granT !== undefined && t - ball._granT < 0.05) return;
+    ball._granT = t;
+    const cw = W.cw || 1000;
+    this.granular(ball.x ?? cw / 2, clamp(vn * 0.0008, 0.04, 0.20), 2 + (vn / 250 | 0));
   },
 
   /** Ball-on-wall / ball-on-peg — walls count as hard infrastructure.
@@ -882,6 +982,7 @@ export const Snd = {
     const strength = clamp(Math.sqrt(Math.max(0, magnitude)) * 0.025, 0.03, 0.92);
     this.emitMaterialSound(ball, strength, 0.15);
     this._maybeSubThud(ball, vn);
+    this._maybeGranular(ball, vn);
   },
 
   /** Fragile material shatter — play at full strength + add bright shards. */
@@ -983,7 +1084,24 @@ export const Snd = {
     pan.connect(this.master);
     source.start();
 
-    const voice = { source, filter, gain, pan, profile };
+    // Stick-slip squeal layer for grippy materials: a high-Q bandpass fed by the
+    // same noise, its centre frequency wobbled by a slow LFO — the stick→load→
+    // snap relaxation oscillation (rubber squeak / sand grind) that pure filtered
+    // noise cannot make. Silent by default; driven by speed in commitRoll.
+    let squeal = null;
+    if (matName === 'RUBBER' || matName === 'SAND' || matName === 'WOOD' || matName === 'BOWLING' || matName === 'ROCK') {
+      const sq = this.ctx.createBiquadFilter();
+      sq.type = 'bandpass'; sq.frequency.value = 2200; sq.Q.value = 12;
+      const sqGain = this.ctx.createGain(); sqGain.gain.value = 0;
+      const lfo = this.ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 7;
+      const lfoAmt = this.ctx.createGain(); lfoAmt.gain.value = 1400;   // ± Hz sweep
+      lfo.connect(lfoAmt); lfoAmt.connect(sq.frequency);
+      source.connect(sq); sq.connect(sqGain); sqGain.connect(pan);
+      lfo.start();
+      squeal = { gain: sqGain, lfo };
+    }
+
+    const voice = { source, filter, gain, pan, profile, squeal };
     this._rollVoices[matName] = voice;
     return voice;
   },
@@ -1034,6 +1152,13 @@ export const Snd = {
       // Gain
       const target = Math.min(0.18, m.total * 0.00035 * voice.profile.gs);
       voice.gain.gain.setTargetAtTime(target, t, 0.06);
+      // Stick-slip squeal: silent until a grippy material scrapes fast, then
+      // grows + the relaxation-oscillation LFO speeds up with the scrape rate.
+      if (voice.squeal) {
+        const sq = clamp((avgSpeed - 60) * 0.00022, 0, 0.05) * voice.profile.gs;
+        voice.squeal.gain.gain.setTargetAtTime(sq, t, 0.08);
+        voice.squeal.lfo.frequency.setTargetAtTime(clamp(4 + avgSpeed / 120, 4, 22), t, 0.1);
+      }
     }
     for (const name in this._rollVoices) {
       if (this._rollMix[name] === undefined) {
