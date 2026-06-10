@@ -5,6 +5,7 @@
 
 import { clamp } from '../core/math.js';
 import { balls } from '../entities/ball.js';
+import { softBodies } from '../entities/softBody.js';
 import { W } from '../core/world.js';
 import { canvas } from '../render/canvas.js';
 
@@ -37,6 +38,22 @@ export function ballAt(x, y) {
   for (let i = balls.length - 1; i >= 0; i--) {
     const b = balls[i];
     if ((b.x - x) ** 2 + (b.y - y) ** 2 < b.r * b.r) return b;
+  }
+  // A soft blob is painted as one solid body, but its centre has no node
+  // disk (the ring leaves a hole of ~0.58·R) — treat a click anywhere inside
+  // the blob's outer radius as hitting the nearest node, so grab / erase /
+  // link / pin / inspect work on the whole visible blob.
+  for (let i = softBodies.length - 1; i >= 0; i--) {
+    const sb = softBodies[i];
+    sb.refreshCentroid();
+    const R = sb.outerRadius();
+    if ((sb.cx - x) ** 2 + (sb.cy - y) ** 2 >= R * R) continue;
+    let best = null, bd = Infinity;
+    for (const nd of sb.nodes) {
+      const d = (nd.x - x) ** 2 + (nd.y - y) ** 2;
+      if (d < bd) { bd = d; best = nd; }
+    }
+    return best;
   }
   return null;
 }

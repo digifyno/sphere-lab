@@ -13,7 +13,7 @@
 import './shim.mjs';
 import { W, addBox, clearWorld } from '../src/core/world.js';
 import { PHYS } from '../src/core/config.js';
-import { balls, Ball, wake } from '../src/entities/ball.js';
+import { balls, Ball, wake, kickBall } from '../src/entities/ball.js';
 import { MATERIALS } from '../src/entities/materials.js';
 import { physicsStep } from '../src/physics/step.js';
 import { clearContactCache } from '../src/physics/contactSolver.js';
@@ -21,6 +21,7 @@ import { NBODY_G } from '../src/physics/forces.js';
 import { buildSoftBall, softBodies, polyArea } from '../src/entities/softBody.js';
 import { matVelRestScale } from '../src/physics/materialMods.js';
 import { spawnFlipper } from '../src/physics/flippers.js';
+import { ballAt } from '../src/input/tools.js';
 
 const DT = 1 / 240;
 let passed = 0, failed = 0;
@@ -1044,6 +1045,71 @@ function testFlipperDestructive() {
      `AO: flipper slam splashes mercury into beads (${balls.filter(x => x.mat.name === 'MERCURY').length})`);
 }
 
+// ───────────────── AP–AS: review-pass regressions (soft-body physics) ──────
+function testSoftSleeps() {
+  console.log('AP. a settled blob joins the sleeping islands — and a real impact wakes it');
+  const sb = dropJelly();
+  run(240 * 8);
+  ok(noNaN(), 'AP: no NaN');
+  const asleep = sb.nodes.filter(nd => nd.sleeping).length;
+  ok(asleep === sb.nodes.length,
+     `AP: every node of a settled blob sleeps (${asleep}/${sb.nodes.length})`);
+  // a real impact must wake it back into a deformable body
+  const c0 = blobCentroid(sb);
+  const slug = new Ball(c0.x, 200, 14, MATERIALS.steel); slug.vy = 700;
+  balls.push(slug);
+  run(120);
+  ok(sb.nodes.some(nd => !nd.sleeping), 'AP: an impact wakes the sleeping blob');
+}
+
+function testSoftBuoyancy() {
+  console.log('AQ. a soft blob displaces its DISK volume — jelly bobs nearly submerged, not like cork');
+  reset();
+  const pad = 40;
+  addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  W.waterY = 400;
+  const disk = new Ball(W.cw / 2 - 250, 300, 40, MATERIALS.jelly);  // rigid reference
+  balls.push(disk);
+  const sb = buildSoftBall(W.cw / 2 + 250, 300, 40, MATERIALS.jelly);
+  run(240 * 6);
+  ok(noNaN(), 'AQ: no NaN');
+  const blobDepth = blobCentroid(sb).y - W.waterY;
+  const diskDepth = disk.y - W.waterY;
+  ok(blobDepth > 5,
+     `AQ: blob centroid floats BELOW the waterline like its ρ=1.05 says (depth ${blobDepth.toFixed(0)} px)`);
+  ok(Math.abs(blobDepth - diskDepth) < 30,
+     `AQ: blob rides like the equivalent rigid disk (blob ${blobDepth.toFixed(0)} vs disk ${diskDepth.toFixed(0)} px deep)`);
+}
+
+function testSoftSlingshot() {
+  console.log('AS. a slingshot-launched blob actually flies — the kick reaches the whole body');
+  reset({ gravity: false, drag: 0 });
+  const sb = buildSoftBall(300, 400, 20, MATERIALS.jelly);
+  kickBall(sb.nodes[0], 600, 0);          // exactly what the slingshot release does
+  run(240);
+  let mvx = 0;
+  for (const nd of sb.nodes) mvx += nd.vx;
+  mvx /= sb.nodes.length;
+  ok(noNaN(), 'AS: no NaN');
+  ok(mvx > 540, `AS: the blob flies at the slingshot speed (mean vx ${mvx.toFixed(0)} ≈ 600)`);
+  // and a rigid ball through the same helper behaves exactly as before
+  reset({ gravity: false, drag: 0 });
+  const r = new Ball(300, 400, 20, MATERIALS.rubber);
+  balls.push(r);
+  kickBall(r, 600, 0);
+  ok(r.vx === 600 && r.vy === 0, 'AS: kickBall on a rigid ball is a plain velocity set');
+}
+
+function testBlobHitTest() {
+  console.log('AR. clicking anywhere on a blob hits it — including the visually-solid centre');
+  const sb = dropJelly(50);
+  run(240 * 2);
+  sb.refreshCentroid();
+  const hit = ballAt(sb.cx, sb.cy);
+  ok(hit !== null && hit.soft === sb, 'AR: the blob centre is clickable (nearest node returned)');
+  ok(ballAt(sb.cx + 400, sb.cy - 300) === null, 'AR: empty space still misses');
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1087,5 +1153,9 @@ testDentSaturation();
 testBalloonCeiling();
 testHoneyNotGranular();
 testFlipperDestructive();
+testSoftSleeps();
+testSoftBuoyancy();
+testSoftSlingshot();
+testBlobHitTest();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

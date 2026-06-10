@@ -82,9 +82,28 @@ export function applySoftForces(dt) {
     const Om = Lnum / Lden;                                // best-fit spin
     const cdamp = sb.mat.softDamp ?? 0.08;                 // deviation fraction/step
 
+    // --- blob-level wake: a genuinely DEFORMING blob wakes all its nodes ---
+    // (the solver's impact wake only reaches the contact nodes; the membrane
+    // must respond as one body). A blob at rest always carries a standing
+    // compression (comp ≈ 1%, so P is never exactly 0) — waking on that kept
+    // settled blobs sleep-flickering at 240 Hz forever, which is why the
+    // gate is a deformation threshold and not P !== 0.
+    let maxV2 = 0;
     for (let i = 0; i < n; i++) {
       const b = nodes[i];
-      if (b.pinned) continue;
+      const v2 = b.vx * b.vx + b.vy * b.vy;
+      if (v2 > maxV2) maxV2 = v2;
+    }
+    if (Math.abs(comp) > 0.03 || maxV2 > 18 * 18) {
+      for (let i = 0; i < n; i++) wake(nodes[i]);
+    }
+
+    for (let i = 0; i < n; i++) {
+      const b = nodes[i];
+      // A sleeping node is a frozen anchor (its velocity is zeroed and never
+      // integrated) — pumping pressure/shape velocity into it would surface
+      // as a kick the moment it wakes.
+      if (b.pinned || b.sleeping) continue;
 
       // pressure along the outward edge normal from the two adjacent edges
       const prev = nodes[(i - 1 + n) % n], next = nodes[(i + 1) % n];
@@ -112,8 +131,6 @@ export function applySoftForces(dt) {
       const rvx = mvx - Om * py, rvy = mvy + Om * px;
       b.vx -= cdamp * (b.vx - rvx);
       b.vy -= cdamp * (b.vy - rvy);
-
-      if (P !== 0 || am > 1) wake(b);
     }
   }
 }

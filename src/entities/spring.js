@@ -42,7 +42,10 @@ export class Spring {
     const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
     const force = diff * this.k * 60 + rv * this.damp * 60;
     const fx = nx * force, fy = ny * force;
-    if (!a.pinned) { a.vx += fx / a.mass * dt; a.vy += fy / a.mass * dt; }
-    if (!b.pinned) { b.vx -= fx / b.mass * dt; b.vy -= fy / b.mass * dt; }
+    // Sleeping endpoints are immovable anchors (matches the contact solver's
+    // sleeping-support rule): their velocity is zeroed and never integrated,
+    // so pumping force into them would pop out as a kick on wake.
+    if (!a.pinned && !a.sleeping) { a.vx += fx / a.mass * dt; a.vy += fy / a.mass * dt; }
+    if (!b.pinned && !b.sleeping) { b.vx -= fx / b.mass * dt; b.vy -= fy / b.mass * dt; }
   }
 }

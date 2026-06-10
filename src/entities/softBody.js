@@ -57,6 +57,11 @@ export class SoftBody {
       this.restShape.push({ x: b.x - this.cx, y: b.y - this.cy });
       this.R = Math.max(this.R, Math.hypot(b.x - this.cx, b.y - this.cy));
     }
+    /** Each node's share of the blob's displaced "volume" (same π-less
+     *  r²-convention as ball mass). The node disks overlap by design, so
+     *  summing their own r² would displace ~1.76× the blob and float
+     *  jelly like cork — buoyancy reads this instead of node.r². */
+    this.nodeDispR2 = this.R * this.R / nodes.length;
   }
 
   refreshCentroid() {
@@ -64,6 +69,19 @@ export class SoftBody {
     const n = this.nodes.length;
     for (let i = 0; i < n; i++) { cx += this.nodes[i].x; cy += this.nodes[i].y; }
     this.cx = cx / n; this.cy = cy / n;
+  }
+
+  /** Live outer radius (centroid → node SURFACE) — the blob's painted /
+   *  clickable extent. Call refreshCentroid() first for a live centroid.
+   *  Shared by hit-testing, shadows, and the body render so the three
+   *  can't drift apart. */
+  outerRadius() {
+    let R = 0;
+    for (const b of this.nodes) {
+      const d = Math.hypot(b.x - this.cx, b.y - this.cy) + b.r;
+      if (d > R) R = d;
+    }
+    return R;
   }
 }
 

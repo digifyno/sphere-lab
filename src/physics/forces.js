@@ -56,7 +56,10 @@ export function applyBuoyancy(b, dt) {
   // π-less mass would scale buoyancy by π (~3.1×), making everything up to
   // ρ≈3.8 float (glass, rock, sand…). With the matching convention the float
   // line sits at ρ ≈ 1.2 (the ×1.2 fudge below), so only sub-water materials rise.
-  const ballVol = b.r * b.r * 0.001;
+  // Soft-body nodes read their blob's per-node displacement share instead:
+  // the ring disks overlap by design, so each node's own r² would sum to
+  // ~1.76× the blob's volume and float ρ>1 jelly half out of the water.
+  const ballVol = (b.soft ? b.soft.nodeDispR2 : b.r * b.r) * 0.001;
   // Buoyancy rides on gravity — with gravity off (toggled via G or
   // button), a submerged ball should just drift, not spontaneously
   // shoot upward. Drag + splash still apply so water keeps its feel.

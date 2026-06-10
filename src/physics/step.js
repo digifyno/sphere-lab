@@ -390,7 +390,17 @@ export function physicsStep(dt) {
   const springIters = W.springs.length > 200 ? 3 : 6;
   for (let i = 0; i < springIters; i++) {
     for (const s of W.springs) {
-      wake(s.a); wake(s.b);
+      // Soft-membrane segments follow the sleeping-island rule instead:
+      // both ends asleep → the segment is settled, skip it (the wake here is
+      // what kept settled blobs sleep-flickering forever); one end asleep →
+      // solve against it as an immovable anchor (Spring.solve skips sleeping
+      // endpoints) without waking it — softForces wakes the whole blob when
+      // it genuinely deforms.
+      if (s.tag === 'soft') {
+        if (s.a.sleeping && s.b.sleeping) continue;
+      } else {
+        wake(s.a); wake(s.b);
+      }
       s.solve(dt / springIters * 4);
     }
     for (const c of W.constraints) {

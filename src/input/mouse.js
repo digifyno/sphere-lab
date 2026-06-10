@@ -9,7 +9,7 @@
 import { clamp, len, rand } from '../core/math.js';
 import { W, cam, screenToWorld } from '../core/world.js';
 import { canvas } from '../render/canvas.js';
-import { balls, spawnBall } from '../entities/ball.js';
+import { balls, spawnBall, kickBall } from '../entities/ball.js';
 import { Spring } from '../entities/spring.js';
 import { Snd } from '../audio/sound.js';
 import { explode } from '../physics/explode.js';
@@ -409,7 +409,9 @@ addEventListener('mouseup', e => {
       }
     } else {
       const b = spawnBall(mouse.wsx, mouse.wsy);
-      if (b) { b.vx = dx * 6; b.vy = dy * 6; spawned.push(b); }
+      // kickBall, not a bare vx/vy set: for soft materials spawnBall returns
+      // ONE node of the blob — the launch must reach the whole body.
+      if (b) { kickBall(b, dx * 6, dy * 6); spawned.push(b); }
     }
     if (spawned.length) {
       pushUndo(() => {

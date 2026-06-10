@@ -142,6 +142,15 @@ export function wakeAll() {
   for (const b of balls) wake(b);
 }
 
+/** Launch a ball — or, when the handle is a soft-body node (what spawnBall
+ *  returns for soft materials), the WHOLE blob. A blob's mass is split
+ *  across N ring nodes, so kicking the single returned node gives the body
+ *  ~1/N of the intended momentum and shape matching swallows the rest. */
+export function kickBall(b, vx, vy) {
+  const targets = b.soft ? b.soft.nodes : [b];
+  for (const t of targets) { t.vx = vx; t.vy = vy; wake(t); }
+}
+
 /** @type {Ball[]} */
 export const balls = [];
 
