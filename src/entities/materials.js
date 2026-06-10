@@ -146,10 +146,13 @@ export const MATERIALS = {
   // energy (radial blast + gamma flash + heat). Two antimatter balls coexist.
   antimatter:{ name:'ANTIMATTER', color:'#d9a8ff', density: 1.00, restitution: 0.50, friction: 0.20, metallic: 0,    glow: 1.35, refract: 0,    pitch: 1500, timbre: 'sawtooth', deform: 0.30, roll: 0.03,  heatKeep: 0.9970, cond: 0.50, bounceBack: 0.30, antimatter: true },
   // Honey — a genuinely viscous liquid: a particle fluid like water but with
-  // ~7× the XSPH viscosity, so a poured column slumps and oozes instead of
+  // ~9× the XSPH viscosity, so a poured column slumps and oozes instead of
   // sloshing, and a strong wall-cling. Discrete drops (no merging) — it flows,
-  // it doesn't ball up.
-  honey:   { name: 'HONEY',   color: '#e0a423', density: 1.42, restitution: 0.05, friction: 0.85, metallic: 0.05, glow: 0.05, refract: 0,    pitch: 150,  timbre: 'sine',     deform: 0.95, roll: 0.25,  heatKeep: 0.9940, cond: 0.20, bounceBack: 0.35, fluidSim: true, sphVisc: 0.55, cling: 3.2, squashMax: 0.55 },
+  // it doesn't ball up. Friction is LOW like every liquid: a Newtonian fluid
+  // has no dry-friction yield stress (the old μ=0.85 let honey heaps stand at
+  // the atan(μ)≈40° Coulomb cone like rubble); all its thickness lives in
+  // sphVisc + roll damping + cling, which resist MOTION, not load.
+  honey:   { name: 'HONEY',   color: '#e0a423', density: 1.42, restitution: 0.05, friction: 0.06, metallic: 0.05, glow: 0.05, refract: 0,    pitch: 150,  timbre: 'sine',     deform: 0.95, roll: 0.25,  heatKeep: 0.9940, cond: 0.20, bounceBack: 0.35, fluidSim: true, sphVisc: 0.70, cling: 3.2, squashMax: 0.55 },
   // Water — particle fluid. Doesn't merge; instead each drop feels surface-
   // tension cohesion + viscosity from its neighbours (see applyFluidSim), and
   // the rigid solver enforces incompressibility. Very slippery + dead bounce,
