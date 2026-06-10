@@ -14,21 +14,34 @@ export function drawSoftBodies(tx) {
     if (n < 3) continue;
     const mat = sb.mat;
 
-    // smoothed closed outline: quadratic curves through edge midpoints, with the
-    // node centres as control points → a rounded blob, not a faceted polygon.
-    const mx = (i) => (nodes[i].x + nodes[(i + 1) % n].x) * 0.5;
-    const my = (i) => (nodes[i].y + nodes[(i + 1) % n].y) * 0.5;
+    // live centroid + extent — refreshCentroid is a pure recompute, so the
+    // render needn't assume physics ran this frame; outerRadius is the same
+    // measure the shadow pass + hit-testing use, so the three can't drift.
+    sb.refreshCentroid();
+    const cx = sb.cx, cy = sb.cy;
+    const R = sb.outerRadius();
+
+    // The painted skin is the node SURFACE, not the node centres: push each
+    // ring point outward by its node radius, else the blob renders one
+    // node-radius smaller than it collides — visibly hovering above its own
+    // shadow and contacts.
+    const px = [], py = [];
+    for (let i = 0; i < n; i++) {
+      const nd = nodes[i];
+      const dx = nd.x - cx, dy = nd.y - cy;
+      const dl = Math.hypot(dx, dy) || 1e-4;
+      px.push(nd.x + dx / dl * nd.r);
+      py.push(nd.y + dy / dl * nd.r);
+    }
+    // smoothed closed outline: quadratic curves through edge midpoints, with
+    // the surface points as control points → a rounded blob, not a polygon.
+    const mx = (i) => (px[i] + px[(i + 1) % n]) * 0.5;
+    const my = (i) => (py[i] + py[(i + 1) % n]) * 0.5;
     tx.beginPath();
     tx.moveTo(mx(n - 1), my(n - 1));
-    for (let i = 0; i < n; i++) tx.quadraticCurveTo(nodes[i].x, nodes[i].y, mx(i), my(i));
+    for (let i = 0; i < n; i++) tx.quadraticCurveTo(px[i], py[i], mx(i), my(i));
     tx.closePath();
 
-    // centroid computed here (render must not assume physics ran this frame)
-    let cx = 0, cy = 0;
-    for (let i = 0; i < n; i++) { cx += nodes[i].x; cy += nodes[i].y; }
-    cx /= n; cy /= n;
-    let R = 1;
-    for (let i = 0; i < n; i++) R = Math.max(R, Math.hypot(nodes[i].x - cx, nodes[i].y - cy));
     const c = mat.color;
     const g = tx.createRadialGradient(cx - R * 0.3, cy - R * 0.35, R * 0.1, cx, cy, R * 1.15);
     g.addColorStop(0, lighten(c, 0.45));

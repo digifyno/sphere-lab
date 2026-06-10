@@ -27,12 +27,16 @@ export function drawAO(tx) {
   tx.globalCompositeOperation = 'multiply';
   for (let i = 0; i < balls.length; i++) {
     const a = balls[i];
+    // Soft-body nodes are hidden lattice parts of one painted blob — pair
+    // AO against them bleeds contact shading through the translucent body.
+    if (a.isSoftNode) continue;
     // If `a` is entirely off-screen, every pair it's in is too — skip
     // the whole inner loop. This turns the nominal O(n²) into something
     // closer to O(visible²) which is much smaller when zoomed in.
     if (!isBallOnScreen(a, 80)) continue;
     for (let j = i + 1; j < balls.length; j++) {
       const b = balls[j];
+      if (b.isSoftNode) continue;
       if (!isBallOnScreen(b, 80)) continue;
       const dx = b.x - a.x, dy = b.y - a.y;
       const d2 = dx * dx + dy * dy;

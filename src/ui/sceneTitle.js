@@ -23,7 +23,7 @@ const SUBS = {
   domino:    'Chain of spring-linked pieces',
   solar:     'Planets · moons · asteroid belt',
   rain:      'Slanted platforms · endless drop',
-  jelly:     'Soft-body blobs · ring + spokes',
+  jelly:     'Soft-body blobs · pressure + shape memory',
   water:     'Archimedes buoyancy · live ripples',
   magnets:   'Mutual 1/r² attraction',
   avalanche: 'Tilted slope · tower of balls',

@@ -1159,6 +1159,24 @@ function testBlobTeardown() {
   ok(noNaN(), 'AV: no NaN after stepping past a teardown');
 }
 
+function testSoftNodeRenderHygiene() {
+  console.log('AW. soft nodes are render-invisible: no refraction-pass trigger, no per-node trails');
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const sb = buildSoftBall(W.cw / 2, W.ch / 2, 30, MATERIALS.slime);
+  // loop.js triggers the full-canvas refraction snapshot on refract > 0.3 —
+  // slime is 0.42, but its hidden nodes must never trip it (they're skipped
+  // by drawBall, so the snapshot would buy zero pixels every frame).
+  ok(sb.nodes.every(nd => (nd.mat.refract || 0) <= 0.3),
+     'AW: slime nodes do not trip the refraction pass');
+  PHYS.trails = true;
+  run(240);
+  const ribbons = sb.nodes.filter(nd => nd.trail.length > 0).length;
+  PHYS.trails = false;
+  ok(noNaN(), 'AW: no NaN');
+  ok(ribbons === 0, `AW: hidden lattice nodes record no trail ribbons (${ribbons} did)`);
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1208,5 +1226,6 @@ testSoftSlingshot();
 testBlobHitTest();
 testBlobSaveLoad();
 testBlobTeardown();
+testSoftNodeRenderHygiene();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

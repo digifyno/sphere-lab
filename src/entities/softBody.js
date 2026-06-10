@@ -95,6 +95,11 @@ function nodeMaterial(mat) {
     ...mat,
     fragile: false, fluid: false, fluidSim: false,
     antimatter: false, explosive: false, chip: 0, tanRest: 0, magnetic: false,
+    // Nodes are never drawn individually (the blob is painted as one shape),
+    // but loop.js scans ball materials to decide whether the expensive
+    // full-canvas refraction snapshot is needed — a slime node's inherited
+    // 0.42 would force that pass every frame for zero rendered pixels.
+    refract: 0,
   };
 }
 

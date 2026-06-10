@@ -310,16 +310,12 @@ export function drawBallShadows(tx) {
     if (b.isSoftNode) continue;
     castShadow(b);
   }
-  // per-blob shadow from the centroid + effective radius (node ring + node r)
+  // per-blob shadow from the centroid + outer radius — the same shared
+  // measures the blob render + hit-testing use, so they can't disagree.
   for (const sb of softBodies) {
-    const n = sb.nodes.length;
-    if (n < 3) continue;
-    let cx = 0, cy = 0;
-    for (const nd of sb.nodes) { cx += nd.x; cy += nd.y; }
-    cx /= n; cy /= n;
-    let R = 1;
-    for (const nd of sb.nodes) R = Math.max(R, Math.hypot(nd.x - cx, nd.y - cy) + nd.r);
-    castShadow({ x: cx, y: cy, r: R, mat: sb.mat, heat: 0 });
+    if (sb.nodes.length < 3) continue;
+    sb.refreshCentroid();
+    castShadow({ x: sb.cx, y: sb.cy, r: sb.outerRadius(), mat: sb.mat, heat: 0 });
   }
   tx.restore();
 }

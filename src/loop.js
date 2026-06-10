@@ -130,7 +130,7 @@ function frame(now) {
   // the wall/grid background (the single biggest "it's faking it" tell).
   const anyRefract = PHYS.refract && balls.some(b => (b.mat.refract || 0) > 0.3);
 
-  if (PHYS.trails) for (const b of balls) drawTrail(ctx, b);
+  if (PHYS.trails) for (const b of balls) { if (!b.isSoftNode) drawTrail(ctx, b); }
   drawAO(ctx);
   for (const b of balls) if (!anyRefract || (b.mat.refract || 0) <= 0.3) drawBall(ctx, b);
   drawSoftBodies(ctx);   // blobs painted as one shape (their nodes skip drawBall)

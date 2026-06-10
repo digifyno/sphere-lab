@@ -807,9 +807,13 @@ export const Snd = {
     // Per-ball retrigger cooldown. A ball in continuous contact with a
     // wall or another ball re-enters `collideX` every physics tick; we
     // only want a new voice every ~45 ms so rolling / sliding doesn't
-    // turn into a buzzsaw.
-    if (ball._sndT !== undefined && t - ball._sndT < PER_BALL_COOLDOWN) return;
-    ball._sndT = t;
+    // turn into a buzzsaw. A soft-body NODE shares its blob's cooldown —
+    // a landing blob touches with several nodes in the same instant, and
+    // each has its own _sndT, so per-node cooldowns stack one voice per
+    // contacting node into a chorus.
+    const voiceHost = ball.soft ?? ball;
+    if (voiceHost._sndT !== undefined && t - voiceHost._sndT < PER_BALL_COOLDOWN) return;
+    voiceHost._sndT = t;
 
     // Stereo panner — position in the world maps to L/R in the mix.
     const cw = W.cw || window.innerWidth || 1000;
@@ -861,7 +865,10 @@ export const Snd = {
     const modeScale = strength * (1 - otherSoftness * 0.75) * profile.resonance * sp.distGain;
     if (modeScale < 0.003) return;
 
-    const radius = ball.r || REF_R;
+    // A soft node sounds as its whole BODY: pitch by the blob's radius, not
+    // the small ring node's (nodeR ≈ 0.42R would play the jelly voice ~2.2×
+    // above its authored fundamental).
+    const radius = (ball.soft ? ball.soft.R : ball.r) || REF_R;
     const sizeScale = Math.pow(REF_R / radius, profile.sizeExp || 0);
     const reverbSend = profile.reverbSend ?? 0.15;
 

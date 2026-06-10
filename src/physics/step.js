@@ -369,7 +369,7 @@ export function physicsStep(dt) {
     }
     b.angle += b.omega * dt;
 
-    if (PHYS.trails) {
+    if (PHYS.trails && !b.isSoftNode) {   // a blob is one body — no per-node ribbons
       b.trailT -= dt;
       if (b.trailT <= 0) {
         b.trailT = 0.02;
