@@ -71,4 +71,11 @@ globalThis.requestAnimationFrame = noop;
 globalThis.cancelAnimationFrame = noop;
 globalThis.getComputedStyle = windowStub.getComputedStyle;
 globalThis.devicePixelRatio = 1;
-globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
+// Real in-memory storage (not a noop) so Save → Load round-trips are testable.
+const _store = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (_store.has(k) ? _store.get(k) : null),
+  setItem: (k, v) => { _store.set(k, String(v)); },
+  removeItem: (k) => { _store.delete(k); },
+  clear: () => { _store.clear(); },
+};

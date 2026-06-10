@@ -51,7 +51,6 @@ export class SoftBody {
     /** Effective radius (centroid → node centre) for shadows/FX. */
     this.R = 1;
     /** @type {Spring[]} */ this.springs = [];
-    this.dead = false;
     this.refreshCentroid();
     for (const b of nodes) {
       this.restShape.push({ x: b.x - this.cx, y: b.y - this.cy });
@@ -108,40 +107,89 @@ function nodeMaterial(mat) {
 export function buildSoftBall(cx, cy, R, mat) {
   const N = Math.min(12, mat.softNodes ?? 10);
   if (balls.length + N > 260) return null;
+  const nodes = [];
+  for (let i = 0; i < N; i++) {
+    const ang = (i / N) * TAU;
+    const b = new Ball(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R, R, mat);
+    balls.push(b); nodes.push(b);
+  }
+  return enrollSoftBody(nodes, mat, R);
+}
+
+/**
+ * Wire a ring of node balls into a SoftBody — node material/mass/flags, the
+ * perimeter membrane springs, and registration. Shared by `buildSoftBall`
+ * (fresh ring) and the save/load restore path, so the wiring can't drift.
+ *
+ * Perimeter springs only — internal structure (spokes/braces) is replaced by
+ * shape matching, which has no facet-buckling modes.
+ *
+ * @param {Ball[]} nodes — ring Balls already in the pool, CCW order
+ * @param {import('./materials.js').Material} mat — the PARENT material
+ * @param {number} R — blob build radius (mass + displacement convention)
+ * @param {{restShape?:{x:number,y:number}[], restArea?:number,
+ *          springRests?:number[]}} [data] — saved rest state to restore, so a
+ *          loaded blob doesn't adopt its saved deformation as its new rest
+ */
+export function enrollSoftBody(nodes, mat, R, data) {
+  const N = nodes.length;
   const nmat = nodeMaterial(mat);
   const nodeR = Math.max(4, R * 0.42);           // nodes overlap → a closed surface
   // The blob's total mass equals an equivalent rigid disk of radius R (same
   // r²·ρ·0.001 convention as ball.js), split evenly across the ring — so a
   // jelly blob weighs the same as a rubber ball its size, not N× more.
   const nodeMass = Math.max(1e-4, R * R * mat.density * 0.001 / N);
-  const nodes = [];
-  for (let i = 0; i < N; i++) {
-    const ang = (i / N) * TAU;
-    const b = new Ball(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R, nodeR, nmat);
+  for (const b of nodes) {
+    b.mat = nmat;
+    b.r = nodeR;
+    b.area = Math.PI * nodeR * nodeR;
     b.mass = nodeMass;
     b.inertia = 0.5 * nodeMass * nodeR * nodeR;
     b.isSoftNode = true;
-    balls.push(b); nodes.push(b);
   }
   const sb = new SoftBody(nodes, mat);
   for (const b of nodes) b.soft = sb;
-
-  // Perimeter springs only — the membrane. Internal structure (spokes/braces)
-  // is replaced by shape matching, which has no facet-buckling modes.
+  if (data && Array.isArray(data.restShape) && data.restShape.length === N) {
+    sb.restShape = data.restShape.map(q => ({ x: q.x, y: q.y }));
+    if (data.restArea > 0) sb.restArea = data.restArea;
+    sb.R = R;
+    sb.nodeDispR2 = R * R / N;
+  }
   const k = mat.softStiff ?? 0.35;
   for (let i = 0; i < N; i++) {
     const a = nodes[i], b = nodes[(i + 1) % N];
-    const d = Math.hypot(a.x - b.x, a.y - b.y);
-    const s = new Spring(a, b, d, k, 0.05); s.tag = 'soft';
+    const rest = (data && data.springRests && data.springRests[i] != null)
+      ? data.springRests[i]
+      : Math.hypot(a.x - b.x, a.y - b.y);
+    const s = new Spring(a, b, rest, k, 0.05); s.tag = 'soft';
     W.springs.push(s); sb.springs.push(s);
   }
   softBodies.push(sb);
   return sb;
 }
 
+/** Tear a blob down NOW: splice its nodes from the pool, its membrane springs
+ *  from W.springs, and unregister it. Idempotent. This is the path for every
+ *  out-of-step removal (erase tool, undo, load) — the cull below only runs
+ *  inside physicsStep, so relying on it left fully-rendered ghost blobs while
+ *  the sim was paused. */
+export function destroySoftBody(sb) {
+  for (const b of sb.nodes) {
+    b._dead = true;
+    const i = balls.indexOf(b);
+    if (i >= 0) balls.splice(i, 1);
+  }
+  for (const s of sb.springs) {
+    const i = W.springs.indexOf(s);
+    if (i >= 0) W.springs.splice(i, 1);
+  }
+  const i = softBodies.indexOf(sb);
+  if (i >= 0) softBodies.splice(i, 1);
+}
+
 /** Remove dead soft bodies (a node escaped/popped) — kill the whole blob so no
- *  orphan springs/nodes linger. Springs are spliced from W.springs. Called once
- *  per step from step.js after the dead-ball cleanup. */
+ *  orphan springs/nodes linger. Called once per step from step.js after the
+ *  dead-ball cleanup (so the splice can't invalidate the frame's pair list). */
 export function cullSoftBodies() {
   for (let i = softBodies.length - 1; i >= 0; i--) {
     const sb = softBodies[i];
@@ -149,12 +197,6 @@ export function cullSoftBodies() {
     for (let k = 0; k < sb.nodes.length && !lost; k++) {
       if (sb.nodes[k]._dead || !balls.includes(sb.nodes[k])) lost = true;
     }
-    if (!lost) continue;
-    for (const b of sb.nodes) b._dead = true;
-    for (const s of sb.springs) {
-      const idx = W.springs.indexOf(s);
-      if (idx >= 0) W.springs.splice(idx, 1);
-    }
-    softBodies.splice(i, 1);
+    if (lost) destroySoftBody(sb);
   }
 }

@@ -14,6 +14,7 @@ import { W } from '../core/world.js';
 import { balls, Ball } from '../entities/ball.js';
 import { Spring } from '../entities/spring.js';
 import { MATERIALS } from '../entities/materials.js';
+import { softBodies, enrollSoftBody } from '../entities/softBody.js';
 import { loadScene } from '../scenes/index.js';
 import { canvas } from '../render/canvas.js';
 
@@ -29,14 +30,30 @@ export function saveState() {
 
   // Springs reference balls by index into the saved-balls array. Any
   // spring whose endpoint was filtered out (fragment, or a scene-built
-  // ball that's no longer present for some reason) is dropped.
+  // ball that's no longer present for some reason) is dropped. Soft
+  // membrane springs are excluded — the blob restore rebuilds them.
   const savedSprings = W.springs
-    .filter(s => ballIdx.has(s.a) && ballIdx.has(s.b))
+    .filter(s => s.tag !== 'soft' && ballIdx.has(s.a) && ballIdx.has(s.b))
     .map(s => ({
       a: ballIdx.get(s.a),
       b: ballIdx.get(s.b),
       rest: s.rest, k: s.k, damp: s.damp,
-      offA: s.offA, offB: s.offB
+      offA: s.offA, offB: s.offB,
+      tag: s.tag
+    }));
+
+  // Soft blobs: node balls are saved in the main list (their pose +
+  // velocities round-trip for free); this records the wiring — which
+  // indices form a ring, plus the rest state shape matching pulls toward.
+  const savedSoft = softBodies
+    .filter(sb => sb.nodes.every(nd => ballIdx.has(nd)))
+    .map(sb => ({
+      mat: matKeyOf(sb.mat),
+      nodes: sb.nodes.map(nd => ballIdx.get(nd)),
+      R: sb.R,
+      restArea: sb.restArea,
+      restShape: sb.restShape,
+      springRests: sb.springs.map(s => s.rest)
     }));
 
   // World-anchored constraints (cradle-style). Same index pattern.
@@ -57,7 +74,8 @@ export function saveState() {
       polarity: b.polarity
     })),
     springs: savedSprings,
-    constraints: savedConstraints
+    constraints: savedConstraints,
+    softBodies: savedSoft
   };
   try {
     localStorage.setItem(KEY, JSON.stringify(payload));
@@ -76,9 +94,13 @@ export function loadState() {
     // Clear the scene's starting balls *and* the springs / constraints
     // that reference them. Otherwise cradle / cloth / jelly / chaos
     // springs hold dead Ball references and the solver pulls on phantoms.
+    // softBodies too: the scene rebuild registered fresh blobs whose node
+    // balls the wipes below orphan — without this they kept rendering as
+    // ghost blobs until the next un-paused physics step culled them.
     balls.length = 0;
     W.springs.length = 0;
     W.constraints.length = 0;
+    softBodies.length = 0;
 
     // Build balls first, keeping a local array so we can map saved
     // spring / constraint indices back to the new Ball instances.
@@ -102,7 +124,19 @@ export function loadState() {
       const b = restored[sp.b];
       if (!a || !b) continue;
       const spring = new Spring(a, b, sp.rest, sp.k, sp.damp, sp.offA, sp.offB);
+      if (sp.tag) spring.tag = sp.tag;   // slime bonds stay managed bonds
       W.springs.push(spring);
+    }
+
+    // Re-wire soft blobs onto their restored node balls — material clone,
+    // node mass/flags, membrane springs, and the saved rest shape (so a
+    // blob saved mid-squash doesn't adopt the squash as its new rest).
+    for (const sv of payload.softBodies || []) {
+      const mat = Object.prototype.hasOwnProperty.call(MATERIALS, sv.mat) ? MATERIALS[sv.mat] : null;
+      if (!mat || !mat.soft) continue;
+      const nodes = (sv.nodes || []).map(i => restored[i]);
+      if (nodes.length < 3 || nodes.some(n => !n)) continue;
+      enrollSoftBody(nodes, mat, sv.R || 20, sv);
     }
 
     // Rebuild world-anchor constraints.
@@ -136,6 +170,9 @@ export function screenshot() {
 
 function matKeyOf(m) {
   for (const k of Object.keys(MATERIALS)) if (MATERIALS[k] === m) return k;
+  // Soft-body nodes carry a per-blob CLONE of their material — identity
+  // fails, but the clone keeps the parent's name.
+  for (const k of Object.keys(MATERIALS)) if (MATERIALS[k].name === m.name) return k;
   return 'rubber';
 }
 

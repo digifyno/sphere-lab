@@ -18,10 +18,12 @@ import { MATERIALS } from '../src/entities/materials.js';
 import { physicsStep } from '../src/physics/step.js';
 import { clearContactCache } from '../src/physics/contactSolver.js';
 import { NBODY_G } from '../src/physics/forces.js';
-import { buildSoftBall, softBodies, polyArea } from '../src/entities/softBody.js';
+import { buildSoftBall, destroySoftBody, softBodies, polyArea } from '../src/entities/softBody.js';
 import { matVelRestScale } from '../src/physics/materialMods.js';
 import { spawnFlipper } from '../src/physics/flippers.js';
 import { ballAt } from '../src/input/tools.js';
+import { loadScene } from '../src/scenes/index.js';
+import { saveState, loadState } from '../src/ui/save.js';
 
 const DT = 1 / 240;
 let passed = 0, failed = 0;
@@ -1110,6 +1112,53 @@ function testBlobHitTest() {
   ok(ballAt(sb.cx + 400, sb.cy - 300) === null, 'AR: empty space still misses');
 }
 
+// ───────────────── AT–AV: review-pass regressions (soft-body lifecycle) ────
+function testBlobSaveLoad() {
+  console.log('AT. Save → Load round-trips soft blobs intact (material, springs, softness, no ghosts)');
+  reset();
+  loadScene('jelly');
+  run(240);                                       // let the blobs settle into a real pose
+  const nBlobs = softBodies.length;
+  const jellyN0 = balls.filter(b => b.mat.name === 'JELLY').length;
+  ok(nBlobs > 0 && jellyN0 > 0, `AT: jelly scene has blobs to save (${nBlobs} blobs, ${jellyN0} nodes)`);
+  saveState();
+  run(120);
+  loadState();
+  // No stepping before these asserts — this is exactly the paused-Load case.
+  ok(softBodies.length === nBlobs, `AT: every blob round-tripped (${softBodies.length}/${nBlobs})`);
+  ok(balls.filter(b => b.mat.name === 'JELLY').length === jellyN0,
+     'AT: nodes kept their jelly material (no rubber degradation)');
+  ok(softBodies.every(sb => sb.nodes.every(nd => balls.includes(nd) && nd.soft === sb && nd.isSoftNode)),
+     'AT: no ghost blobs — every registered blob is wired to live pool balls');
+  ok(softBodies.every(sb => sb.springs.length === sb.nodes.length &&
+                            sb.springs.every(s => s.tag === 'soft')),
+     'AT: membrane springs rebuilt and tagged (hidden from the spring renderer)');
+  run(240 * 2);
+  ok(noNaN(), 'AT: no NaN after resuming');
+  ok(softBodies.every(sb => Math.abs(polyArea(sb.nodes)) > sb.restArea * 0.4),
+     'AT: blobs are still pressurized soft bodies after the round-trip');
+}
+
+function testBlobTeardown() {
+  console.log('AV. erase/undo tears a blob down instantly — no orphan nodes, springs, or registration');
+  reset();
+  const pad = 40; addBox(pad, pad, W.cw - pad * 2, W.ch - pad * 2);
+  const bystander = new Ball(200, 200, 16, MATERIALS.steel);
+  balls.push(bystander);
+  const springs0 = W.springs.length;
+  const sb = buildSoftBall(600, 400, 40, MATERIALS.jelly);
+  // What the erase tool / spawn-undo call — NO physics step in between,
+  // which is exactly the paused case that used to leave ghost blobs.
+  destroySoftBody(sb);
+  ok(softBodies.length === 0, 'AV: blob unregistered immediately');
+  ok(balls.length === 1 && balls[0] === bystander, `AV: all nodes left the pool (${balls.length} ball left)`);
+  ok(W.springs.length === springs0, 'AV: membrane springs removed');
+  destroySoftBody(sb);                       // double-destroy must be a no-op
+  ok(balls.length === 1 && W.springs.length === springs0, 'AV: teardown is idempotent');
+  run(60);
+  ok(noNaN(), 'AV: no NaN after stepping past a teardown');
+}
+
 // ───────────────────────────── run all ────────────────────────────────────
 console.log('\n=== Sphere Lab physics invariants ===\n');
 testHeadOn();
@@ -1157,5 +1206,7 @@ testSoftSleeps();
 testSoftBuoyancy();
 testSoftSlingshot();
 testBlobHitTest();
+testBlobSaveLoad();
+testBlobTeardown();
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} passed, ${failed} failed`);
 if (failed) { for (const f of fails) console.error('   - ' + f); process.exit(1); }

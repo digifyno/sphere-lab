@@ -10,6 +10,7 @@ import { clamp, len, rand } from '../core/math.js';
 import { W, cam, screenToWorld } from '../core/world.js';
 import { canvas } from '../render/canvas.js';
 import { balls, spawnBall, kickBall } from '../entities/ball.js';
+import { destroySoftBody } from '../entities/softBody.js';
 import { Spring } from '../entities/spring.js';
 import { Snd } from '../audio/sound.js';
 import { explode } from '../physics/explode.js';
@@ -174,6 +175,17 @@ function createLink(a, b) {
   return s;
 }
 
+/** Undo helper: remove a batch of spawn handles. A soft handle is just
+ *  nodes[0] of its blob — undoing it must tear down the whole body, not
+ *  splice one node and leave the rest to the next physics step's cull. */
+function removeSpawned(batch) {
+  for (const b of batch) {
+    if (b.soft) { destroySoftBody(b.soft); continue; }
+    const i = balls.indexOf(b);
+    if (i >= 0) balls.splice(i, 1);
+  }
+}
+
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
 canvas.addEventListener('mousedown', e => {
@@ -256,6 +268,10 @@ canvas.addEventListener('mousedown', e => {
   if (TOOL === 'erase') {
     const b = ballAt(mouse.wx, mouse.wy);
     if (b) {
+      // A soft node is part of one body — erase the whole blob NOW (the
+      // physics-step cull doesn't run while paused, so removing a single
+      // node here left a fully-rendered ghost blob until unpause).
+      if (b.soft) { destroySoftBody(b.soft); Snd.click(); return; }
       const i = balls.indexOf(b);
       if (i >= 0) balls.splice(i, 1);
       W.springs = W.springs.filter(s => s.a !== b && s.b !== b);
@@ -383,12 +399,7 @@ addEventListener('mouseup', e => {
     if (mouse.autoSpawned.length) {
       const batch = mouse.autoSpawned.slice();
       mouse.autoSpawned.length = 0;
-      pushUndo(() => {
-        for (const b of batch) {
-          const i = balls.indexOf(b);
-          if (i >= 0) balls.splice(i, 1);
-        }
-      });
+      pushUndo(() => removeSpawned(batch));
       return;
     }
 
@@ -414,12 +425,7 @@ addEventListener('mouseup', e => {
       if (b) { kickBall(b, dx * 6, dy * 6); spawned.push(b); }
     }
     if (spawned.length) {
-      pushUndo(() => {
-        for (const b of spawned) {
-          const i = balls.indexOf(b);
-          if (i >= 0) balls.splice(i, 1);
-        }
-      });
+      pushUndo(() => removeSpawned(spawned));
     }
   }
 });
